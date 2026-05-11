@@ -40,6 +40,22 @@
         </div>
 
         <div class="flex flex-col gap-4">
+          <div>
+            <div class="font-arcade text-[10px] text-amber-300 mb-2">KEYBOARD</div>
+            <div class="flex gap-2">
+              <button
+                v-for="opt in ['QWERTY', 'AZERTY', 'NUMPAD']"
+                :key="opt"
+                @click="prefs.setLayout(opt)"
+                :class="['btn-3d', 'flex-1', '!py-2', '!text-xs', prefs.layout === opt ? 'btn-primary' : 'btn-ghost']"
+              >
+                {{ opt }}
+              </button>
+            </div>
+            <div v-if="prefs.layout === 'NUMPAD'" class="font-arcade text-[8px] text-amber-300/70 mt-2">
+              Numpad maps 1–9, 0 → A–J. Other keys are unreachable.
+            </div>
+          </div>
           <div v-if="loadingSessions" class="font-arcade text-[10px] text-amber-300 text-center py-4 animate-pulse">
             LOADING GAMES...
           </div>
@@ -92,9 +108,11 @@
 
 <script setup>
 import { useAuthStore } from '~/stores/auth'
+import { usePreferencesStore } from '~/stores/preferences'
 import Scene from '~/components/Scene.vue'
 
 const authStore = useAuthStore()
+const prefs = usePreferencesStore()
 const user = computed(() => authStore.user)
 const runningSessions = ref([])
 const loadingSessions = ref(true)
@@ -112,6 +130,7 @@ async function fetchSessions() {
 }
 
 onMounted(async () => {
+  prefs.hydrate()
   try {
     const userData = await $fetch('/api/me')
     if (userData) {

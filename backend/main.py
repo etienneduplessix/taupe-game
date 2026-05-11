@@ -149,7 +149,15 @@ async def websocket_endpoint(websocket: WebSocket):
             msg_type = data.get("type")
 
             if msg_type == "taupe_attempt":
-                print(f"User {user_id} attempted round {data['data'].get('round_id')} with key {data['data'].get('key')}")
+                payload = data.get("data") or {}
+                if isinstance(payload.get("key"), str):
+                    payload["key"] = payload["key"].upper()
+                print(f"User {user_id} attempted round {payload.get('round_id')} with key {payload.get('key')}")
+                # Find the game this user is in and dispatch the attempt.
+                for game in active_games.values():
+                    if user_id in game.alive_players:
+                        await game.process_attempt(user_id, payload)
+                        break
 
             elif msg_type == "chat_message":
                 import time as _t

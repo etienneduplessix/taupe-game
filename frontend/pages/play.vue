@@ -54,6 +54,7 @@
           ref="keyboardRef"
           :active-key="activeKey"
           :wrong-key="wrongKey"
+          :layout="prefs.layout"
           @key-press="handleKeyPress"
         />
         <!-- Mole digs up out of the active key's hole -->
@@ -118,7 +119,10 @@
         <div class="panel-3d p-10 text-center max-w-lg w-full mx-4" style="border-color: rgba(239,68,68,0.6);">
           <div class="text-8xl mb-4 animate-float">☠️</div>
           <h2 class="title-3d text-5xl md:text-6xl mb-4" style="color: #fca5a5;">ELIMINATED</h2>
-          <p class="text-purple-200 mb-6 font-display">The taupes got you.</p>
+          <p class="text-purple-200 mb-2 font-display">The taupes got you.</p>
+          <div v-if="eliminationReason" class="font-arcade text-[10px] text-red-300 mb-6">
+            REASON: {{ eliminationReason.toUpperCase() }}
+          </div>
           <div class="chip !px-6 !py-3 mb-6 mx-auto">
             <span class="text-2xl">💰</span>
             <div>
@@ -139,7 +143,9 @@
 <script setup>
 import Keyboard from '~/components/Keyboard.vue'
 import Scene from '~/components/Scene.vue'
+import { usePreferencesStore } from '~/stores/preferences'
 
+const prefs = usePreferencesStore()
 const score = ref(0)
 const currentRound = ref(0)
 const combo = ref(0)
@@ -148,6 +154,7 @@ const activeKey = ref(null)
 const activeRoundId = ref(null)
 const wrongKey = ref(null)
 const isEliminated = ref(false)
+const eliminationReason = ref(null)
 const feedback = ref(null)
 const keyboardRef = ref(null)
 const molePosition = ref(null)
@@ -200,6 +207,7 @@ watch(activeKey, updateMolePosition)
 onUpdated(updateMolePosition)
 
 onMounted(() => {
+  prefs.hydrate()
   try {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const wsUrl = `${proto}//${window.location.host}/ws`
@@ -216,7 +224,10 @@ onMounted(() => {
         console.log('🐹 Taupe spawn! Key:', message.data.key)
         handleTaupeSpawn(message.data)
       }
-      else if (message.type === 'player_eliminated') isEliminated.value = true
+      else if (message.type === 'player_eliminated') {
+        eliminationReason.value = message.data?.reason || null
+        isEliminated.value = true
+      }
       else if (message.type === 'alive_count') aliveCount.value = message.data.count
       else if (message.type === 'chat') {
         if (selectedSessionId.value && message.data.session_id && message.data.session_id !== selectedSessionId.value) return
