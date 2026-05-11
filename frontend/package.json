@@ -1,0 +1,22 @@
+{
+  "name": "taupe-frontend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "@pinia/nuxt": "latest",
+    "pinia": "latest"
+  },
+  "devDependencies": {
+    "nuxt": "latest",
+    "@tailwindcss/postcss": "latest",
+    "tailwindcss": "latest",
+    "autoprefixer": "latest",
+    "postcss": "latest"
+  }
+}
