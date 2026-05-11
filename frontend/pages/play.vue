@@ -145,6 +145,7 @@ const currentRound = ref(0)
 const combo = ref(0)
 const aliveCount = ref(1)
 const activeKey = ref(null)
+const activeRoundId = ref(null)
 const wrongKey = ref(null)
 const isEliminated = ref(false)
 const feedback = ref(null)
@@ -228,11 +229,16 @@ onMounted(() => {
 })
 
 function handleTaupeSpawn(data) {
-  activeKey.value = data.key
+  const incomingKey = String(data?.key || '').toUpperCase()
+  if (!incomingKey) return
+  const roundId = data?.round_id || null
+  activeKey.value = incomingKey
+  activeRoundId.value = roundId
   currentRound.value++
   setTimeout(() => {
-    if (activeKey.value === data.key) {
+    if (activeKey.value === incomingKey && activeRoundId.value === roundId) {
       activeKey.value = null
+      activeRoundId.value = null
       combo.value = 0
       showFeedback('TOO SLOW!', 'text-orange-400')
     }
@@ -241,8 +247,10 @@ function handleTaupeSpawn(data) {
 
 function handleKeyPress(key) {
   if (!activeKey.value) return
+  const roundId = activeRoundId.value
   if (key === activeKey.value) {
     activeKey.value = null
+    activeRoundId.value = null
     combo.value++
     const points = 100 * (combo.value >= 10 ? 3 : combo.value >= 5 ? 2 : 1)
     score.value += points
@@ -254,7 +262,10 @@ function handleKeyPress(key) {
     showFeedback('MISS!', 'text-red-400')
   }
   if (socket?.readyState === 1) {
-    socket.send(JSON.stringify({ type: 'taupe_attempt', data: { key, client_ts: Date.now() } }))
+    socket.send(JSON.stringify({
+      type: 'taupe_attempt',
+      data: { round_id: roundId, key, client_ts: Date.now() }
+    }))
   }
 }
 

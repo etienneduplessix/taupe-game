@@ -100,8 +100,13 @@ class GameLoop:
                 min_timeout = self.config.get("min_timeout_ms", 250)
                 timeout_ms = int(min_timeout + (base_timeout - min_timeout) * scaling_val)
 
-                # 2. Pick a target key
-                keys = self.config["allowed_keys"]
+                # 2. Pick a target key (normalized to keyboard-compatible uppercase keys)
+                raw_keys = self.config.get("allowed_keys", DEFAULT_CONFIG["allowed_keys"])
+                if not isinstance(raw_keys, str):
+                    raw_keys = str(raw_keys or "")
+                keys = [k for k in raw_keys.upper() if k.isalnum()]
+                if not keys:
+                    keys = list(DEFAULT_CONFIG["allowed_keys"])
                 target_key = random.choice(keys)
                 print(f"🎯 Picked key: {target_key}")
 
