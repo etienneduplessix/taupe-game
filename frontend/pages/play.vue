@@ -3,7 +3,7 @@
     <Scene />
 
     <!-- HUD -->
-    <div v-if="gameStarted" class="relative z-20 flex justify-between items-center p-4 flex-wrap gap-3" style="max-width: calc(100vw - 244px); margin-right: auto;">
+    <div class="relative z-20 flex justify-between items-center p-4 flex-wrap gap-3" style="max-width: calc(100vw - 244px); margin-right: auto;">
       <div class="flex gap-3 flex-wrap">
         <div class="chip">
           <span class="text-xl">💰</span>
@@ -36,32 +36,15 @@
       </div>
     </div>
 
-    <!-- Waiting Room (queue) -->
-    <div
-      v-if="!gameStarted"
-      class="relative z-10 flex flex-col items-center justify-center gap-5 p-8"
-      style="max-width: calc(100vw - 244px); margin-right: auto; min-height: 80vh;"
-    >
-      <div class="panel-3d p-10 text-center max-w-lg w-full">
-        <div class="text-6xl mb-4 animate-mole-bob">🐹</div>
-        <h2 class="title-3d text-3xl md:text-4xl mb-3">WAITING ROOM</h2>
-        <p class="font-display text-amber-100 mb-6">Hang tight — the admin will start the game soon.</p>
-        <div class="chip !px-6 !py-3 mx-auto">
-          <span class="text-2xl">👥</span>
-          <div>
-            <div class="font-arcade text-[9px] text-amber-300">PLAYERS QUEUED</div>
-            <div class="font-arcade text-3xl text-yellow-300">{{ queueCount.toString().padStart(2, '0') }}</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- Game Stage -->
-    <div v-else class="relative z-10 flex flex-col items-center gap-6 p-4" style="max-width: calc(100vw - 244px); margin-right: auto;">
-      <!-- Feedback -->
+    <div class="relative z-10 flex flex-col items-center gap-6 p-4" style="max-width: calc(100vw - 244px); margin-right: auto;">
+      <!-- Feedback / status banner -->
       <div class="h-10 flex items-center">
         <div v-if="feedback" :class="['font-arcade text-xl animate-mole-pop drop-shadow-[0_3px_0_rgba(0,0,0,0.5)]', feedback.color]">
           {{ feedback.text }}
+        </div>
+        <div v-else-if="!gameStarted" class="font-arcade text-xs text-amber-300 animate-pulse text-center">
+          ⏳ WAITING FOR ADMIN TO START · {{ queueCount }} 👥 IN QUEUE
         </div>
         <div v-else-if="!activeKey" class="text-purple-200/60 font-arcade text-xs animate-pulse">
           WAITING FOR TAUPE...
