@@ -24,6 +24,8 @@ class UpdateSessionBody(BaseModel):
 
 
 def serialize_session(s: GameSession) -> dict:
+    # Local import to avoid circular import at module load
+    from main import session_queues
     return {
         "id": s.id,
         "name": s.name,
@@ -33,6 +35,7 @@ def serialize_session(s: GameSession) -> dict:
         "ended_at": s.ended_at.isoformat() if s.ended_at else None,
         "initial_player_count": s.initial_player_count,
         "winner_user_id": s.winner_user_id,
+        "queue_count": len(session_queues.get(s.id, set())),
     }
 
 
@@ -104,6 +107,8 @@ async def delete_session(session_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.post("/sessions/{session_id}/start")
 async def start_session(session_id: str, db: AsyncSession = Depends(get_db)):
+    from main import session_queues, broadcast_queue_update
+
     result = await db.execute(select(GameSession).where(GameSession.id == session_id))
     session = result.scalars().first()
     if not session:
@@ -114,16 +119,45 @@ async def start_session(session_id: str, db: AsyncSession = Depends(get_db)):
     def db_factory():
         return async_session()
 
-    await start_game(session_id, db_factory)
+    # Consume the queue for this session as the starting roster
+    queued = set(session_queues.pop(session_id, set()))
+    await start_game(session_id, db_factory, initial_players=queued)
 
     # Load config from DB into the running game
     if session_id in active_games and session.config_json:
         active_games[session_id].config = dict(session.config_json)
 
     session.status = "running"
+    session.initial_player_count = len(queued)
     await db.commit()
 
-    return {"status": "started"}
+    await broadcast_queue_update(session_id)
+
+    return {"status": "started", "players": len(queued)}
+
+
+@router.get("/sessions/{session_id}/queue")
+async def get_session_queue(session_id: str, db: AsyncSession = Depends(get_db)):
+    from main import session_queues
+    user_ids = list(session_queues.get(session_id, set()))
+    if not user_ids:
+        return {"count": 0, "players": []}
+    rows = await db.execute(select(User).where(User.id.in_(user_ids)))
+    players = []
+    for u in rows.scalars().all():
+        players.append({
+            "user_id": u.id,
+            "login": u.ft_login,
+            "display_name": u.display_name or u.ft_login,
+            "avatar_url": u.avatar_url,
+            "coalition": {
+                "id": u.coalition_id,
+                "name": u.coalition_name,
+                "color": u.coalition_color,
+                "image_url": u.coalition_image_url,
+            } if u.coalition_id else None,
+        })
+    return {"count": len(players), "players": players}
 
 
 @router.post("/sessions/{session_id}/end")

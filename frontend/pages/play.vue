@@ -3,7 +3,7 @@
     <Scene />
 
     <!-- HUD -->
-    <div class="relative z-20 flex justify-between items-center p-4 flex-wrap gap-3" style="max-width: calc(100vw - 244px); margin-right: auto;">
+    <div v-if="gameStarted" class="relative z-20 flex justify-between items-center p-4 flex-wrap gap-3" style="max-width: calc(100vw - 244px); margin-right: auto;">
       <div class="flex gap-3 flex-wrap">
         <div class="chip">
           <span class="text-xl">💰</span>
@@ -36,8 +36,28 @@
       </div>
     </div>
 
+    <!-- Waiting Room (queue) -->
+    <div
+      v-if="!gameStarted"
+      class="relative z-10 flex flex-col items-center justify-center gap-5 p-8"
+      style="max-width: calc(100vw - 244px); margin-right: auto; min-height: 80vh;"
+    >
+      <div class="panel-3d p-10 text-center max-w-lg w-full">
+        <div class="text-6xl mb-4 animate-mole-bob">🐹</div>
+        <h2 class="title-3d text-3xl md:text-4xl mb-3">WAITING ROOM</h2>
+        <p class="font-display text-amber-100 mb-6">Hang tight — the admin will start the game soon.</p>
+        <div class="chip !px-6 !py-3 mx-auto">
+          <span class="text-2xl">👥</span>
+          <div>
+            <div class="font-arcade text-[9px] text-amber-300">PLAYERS QUEUED</div>
+            <div class="font-arcade text-3xl text-yellow-300">{{ queueCount.toString().padStart(2, '0') }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Game Stage -->
-    <div class="relative z-10 flex flex-col items-center gap-6 p-4" style="max-width: calc(100vw - 244px); margin-right: auto;">
+    <div v-else class="relative z-10 flex flex-col items-center gap-6 p-4" style="max-width: calc(100vw - 244px); margin-right: auto;">
       <!-- Feedback -->
       <div class="h-10 flex items-center">
         <div v-if="feedback" :class="['font-arcade text-xl animate-mole-pop drop-shadow-[0_3px_0_rgba(0,0,0,0.5)]', feedback.color]">
@@ -169,6 +189,9 @@ const keyboardRef = ref(null)
 const molePosition = ref(null)
 const route = useRoute()
 const selectedSessionId = computed(() => route.query.sessionId || null)
+const sessionStatus = ref('waiting')
+const queueCount = ref(0)
+const gameStarted = computed(() => sessionStatus.value === 'running')
 const chatMessages = ref([])
 const chatInput = ref('')
 const chatListEl = ref(null)
@@ -215,20 +238,23 @@ function updateMolePosition() {
 watch(activeKey, updateMolePosition)
 onUpdated(updateMolePosition)
 
-async function fetchSessionLayout() {
+async function fetchSessionInfo() {
   if (!selectedSessionId.value) return
   try {
     const data = await $fetch(`/api/admin/sessions/${selectedSessionId.value}`, { credentials: 'include' })
     const l = data?.config_json?.keyboard_layout
     if (l === 'QWERTY' || l === 'AZERTY' || l === 'NUMPAD') layout.value = l
+    if (data?.status) sessionStatus.value = data.status
+    if (typeof data?.queue_count === 'number') queueCount.value = data.queue_count
   } catch (e) { /* fall back to QWERTY */ }
 }
 
 onMounted(() => {
-  fetchSessionLayout()
+  fetchSessionInfo()
   try {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${proto}//${window.location.host}/ws`
+    const sid = selectedSessionId.value
+    const wsUrl = `${proto}//${window.location.host}/ws${sid ? `?sessionId=${encodeURIComponent(sid)}` : ''}`
     console.log('Connecting to WebSocket:', wsUrl)
     socket = new WebSocket(wsUrl)
     socket.onopen = () => console.log('✓ WebSocket connected')
@@ -239,7 +265,7 @@ onMounted(() => {
       console.log('📨 Message received:', message.type)
       if (message.type === 'taupe_spawn') {
         if (selectedSessionId.value && message.data.session_id && message.data.session_id !== selectedSessionId.value) return
-        console.log('🐹 Taupe spawn! Key:', message.data.key)
+        sessionStatus.value = 'running'
         handleTaupeSpawn(message.data)
       }
       else if (message.type === 'player_eliminated') {
@@ -247,6 +273,16 @@ onMounted(() => {
         isEliminated.value = true
       }
       else if (message.type === 'alive_count') aliveCount.value = message.data.count
+      else if (message.type === 'queue_joined' || message.type === 'queue_update') {
+        if (!message.data?.session_id || message.data.session_id === selectedSessionId.value) {
+          if (typeof message.data?.count === 'number') queueCount.value = message.data.count
+        }
+      }
+      else if (message.type === 'game_over') {
+        if (!message.data?.session_id || message.data.session_id === selectedSessionId.value) {
+          sessionStatus.value = 'ended'
+        }
+      }
       else if (message.type === 'chat') {
         if (selectedSessionId.value && message.data.session_id && message.data.session_id !== selectedSessionId.value) return
         chatMessages.value.push(message.data)

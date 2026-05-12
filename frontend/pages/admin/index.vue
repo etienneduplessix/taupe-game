@@ -73,7 +73,7 @@
               @click="startSession(session.id)"
               class="btn-3d btn-primary !text-[10px] !py-2 !px-3 flex-1"
             >
-              <span>▶️</span> START
+              <span>▶️</span> START · {{ session.queue_count || 0 }} 👥
             </button>
             <button
               v-if="session.status === 'running'"
@@ -145,7 +145,6 @@ const showCreateModal = ref(false)
 const newSessionName = ref('')
 
 const fetchSessions = async () => {
-  loading.value = true
   try {
     const data = await $fetch(`${API}/admin/sessions`, { credentials: 'include' })
     sessions.value = data
@@ -206,7 +205,14 @@ const statusBadgeClass = (status) => ({
   'ended': 'bg-gray-500/30 text-gray-200 border-2 border-gray-400/40',
 }[status] || 'bg-gray-500/30 text-gray-200')
 
-onMounted(fetchSessions)
+let pollInterval = null
+onMounted(() => {
+  fetchSessions()
+  pollInterval = setInterval(fetchSessions, 2000)
+})
+onUnmounted(() => {
+  if (pollInterval) clearInterval(pollInterval)
+})
 </script>
 
 <style scoped>

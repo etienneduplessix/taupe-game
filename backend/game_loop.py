@@ -30,6 +30,14 @@ DEFAULT_CONFIG = {
     "keyboard_layout": "QWERTY"
 }
 
+# Keys actually rendered by each frontend layout. Spawn pool is intersected
+# with this set so taupes can never appear on a key the player can't reach.
+LAYOUT_KEYS = {
+    "QWERTY": set("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"),
+    "AZERTY": set("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"),
+    "NUMPAD": set("ABCDEFGHIJ"),
+}
+
 class GameLoop:
     def __init__(self, session_id: str):
         self.session_id = session_id
@@ -55,10 +63,13 @@ class GameLoop:
         else:
             self.config = dict(DEFAULT_CONFIG)
 
-    async def start(self, db_factory):
+    async def start(self, db_factory, initial_players: Optional[Set[str]] = None):
         self.is_running = True
-        # Seed alive players from currently-connected clients
-        self.alive_players = set(ws_manager.active_connections.keys())
+        # Seed alive players from the queue if provided, else from current connections
+        if initial_players is not None:
+            self.alive_players = set(initial_players)
+        else:
+            self.alive_players = set(ws_manager.active_connections.keys())
 
         # Initialize score manager (players who join later are added on the fly)
         self.score_manager = ScoreManager(self.session_id, self.alive_players, self.config)
@@ -147,15 +158,17 @@ class GameLoop:
                 min_timeout = self.config.get("min_timeout_ms", 250)
                 timeout_ms = int(min_timeout + (base_timeout - min_timeout) * scaling_val)
 
-                # 2. Pick a target key (normalized to keyboard-compatible uppercase keys)
+                # 2. Pick a target key (intersected with the active layout's keyset)
                 raw_keys = self.config.get("allowed_keys", DEFAULT_CONFIG["allowed_keys"])
                 if not isinstance(raw_keys, str):
                     raw_keys = str(raw_keys or "")
-                keys = [k for k in raw_keys.upper() if k.isalnum()]
+                layout = self.config.get("keyboard_layout", "QWERTY")
+                layout_keys = LAYOUT_KEYS.get(layout, LAYOUT_KEYS["QWERTY"])
+                keys = [k for k in raw_keys.upper() if k.isalnum() and k in layout_keys]
                 if not keys:
-                    keys = list(DEFAULT_CONFIG["allowed_keys"])
+                    keys = sorted(layout_keys)
                 target_key = random.choice(keys)
-                print(f"🎯 Picked key: {target_key}")
+                print(f"🎯 Picked key: {target_key} (layout={layout})")
 
                 # 3. Record round in DB (optional - skip if fails)
                 spawn_ts = datetime.utcnow()
@@ -293,9 +306,9 @@ class GameLoop:
 # Global registry to manage active game loops
 active_games: Dict[str, GameLoop] = {}
 
-async def start_game(session_id: str, db_factory):
+async def start_game(session_id: str, db_factory, initial_players: Optional[Set[str]] = None):
     if session_id not in active_games:
         game = GameLoop(session_id)
         active_games[session_id] = game
 
-    await active_games[session_id].start(db_factory)
+    await active_games[session_id].start(db_factory, initial_players=initial_players)

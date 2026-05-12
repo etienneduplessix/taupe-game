@@ -1,3 +1,4 @@
+from typing import Dict, Set
 from fastapi import FastAPI, Depends, HTTPException, Response, Request, status, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
@@ -26,6 +27,20 @@ app.add_middleware(
 )
 
 app.include_router(admin_router)
+
+# Per-session waiting queues (user_ids). Populated when players connect via
+# /ws?sessionId=… before the admin hits start; consumed by the start endpoint.
+session_queues: Dict[str, Set[str]] = {}
+
+
+async def broadcast_queue_update(session_id: str):
+    await ws_manager.broadcast({
+        "type": "queue_update",
+        "data": {
+            "session_id": session_id,
+            "count": len(session_queues.get(session_id, set())),
+        }
+    })
 
 @app.on_event("startup")
 async def startup():
@@ -164,6 +179,8 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
+    session_id = websocket.query_params.get("sessionId")
+
     # Load user display info for chat
     from database import async_session
     display_name = user_id
@@ -178,10 +195,30 @@ async def websocket_endpoint(websocket: WebSocket):
     # 2. Register connection
     await ws_manager.connect(user_id, websocket)
 
-    # 3. Join any active game so attempts actually count
-    for game in active_games.values():
-        if game.is_running:
-            await game.add_player(user_id)
+    # 3. Either join the running game or sit in the session's waiting queue
+    joined_running_game = False
+    if session_id:
+        running_game = active_games.get(session_id)
+        if running_game and running_game.is_running:
+            await running_game.add_player(user_id)
+            joined_running_game = True
+        else:
+            session_queues.setdefault(session_id, set()).add(user_id)
+            await broadcast_queue_update(session_id)
+            await ws_manager.send_personal_message({
+                "type": "queue_joined",
+                "data": {
+                    "session_id": session_id,
+                    "count": len(session_queues[session_id]),
+                }
+            }, user_id)
+
+    # Fallback: also try any other running game (legacy single-game flows)
+    if not joined_running_game:
+        for game in active_games.values():
+            if game.is_running:
+                await game.add_player(user_id)
+                break
 
     try:
         while True:
@@ -222,6 +259,11 @@ async def websocket_endpoint(websocket: WebSocket):
         for game in list(active_games.values()):
             if user_id in game.alive_players:
                 await game.remove_player(user_id)
+        # Remove from any queue they were sitting in
+        for sid, queue in list(session_queues.items()):
+            if user_id in queue:
+                queue.discard(user_id)
+                await broadcast_queue_update(sid)
 
 @app.post("/api/admin/sessions/start")
 async def start_game_endpoint(session_id: str, db: AsyncSession = Depends(get_db)):
