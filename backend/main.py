@@ -143,6 +143,11 @@ async def websocket_endpoint(websocket: WebSocket):
     # 2. Register connection
     await ws_manager.connect(user_id, websocket)
 
+    # 3. Join any active game so attempts actually count
+    for game in active_games.values():
+        if game.is_running:
+            await game.add_player(user_id)
+
     try:
         while True:
             data = await websocket.receive_json()
@@ -179,6 +184,9 @@ async def websocket_endpoint(websocket: WebSocket):
 
     except WebSocketDisconnect:
         ws_manager.disconnect(user_id)
+        for game in list(active_games.values()):
+            if user_id in game.alive_players:
+                await game.remove_player(user_id)
 
 @app.post("/api/admin/sessions/start")
 async def start_game_endpoint(session_id: str, db: AsyncSession = Depends(get_db)):

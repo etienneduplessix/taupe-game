@@ -26,7 +26,8 @@ DEFAULT_CONFIG = {
     "max_mistakes": 5,
     "speed_window_size": 10,
     "max_avg_latency_ms": 800,
-    "timeouts_count_as_mistakes": True
+    "timeouts_count_as_mistakes": True,
+    "keyboard_layout": "QWERTY"
 }
 
 class GameLoop:
@@ -56,16 +57,40 @@ class GameLoop:
 
     async def start(self, db_factory):
         self.is_running = True
-        # Map active connections to alive players
+        # Seed alive players from currently-connected clients
         self.alive_players = set(ws_manager.active_connections.keys())
 
-        # Initialize score manager
+        # Initialize score manager (players who join later are added on the fly)
         self.score_manager = ScoreManager(self.session_id, self.alive_players, self.config)
 
         # Announce initial alive count
         await self._broadcast_alive_count()
 
         self.task = asyncio.create_task(self._run_loop(db_factory))
+
+    async def add_player(self, user_id: str):
+        """Register a player who joined after the game started."""
+        if not self.is_running or user_id in self.alive_players:
+            return
+        if self.score_manager and self.score_manager.scores.get(user_id, {}).get("eliminated"):
+            # Don't re-admit eliminated players
+            return
+        self.alive_players.add(user_id)
+        if self.score_manager:
+            self.score_manager.add_player(user_id)
+        # If the loop was paused waiting for players, bump initial_player_count so scaling math works
+        if self.initial_player_count == 0:
+            self.initial_player_count = len(self.alive_players)
+        await self._broadcast_alive_count()
+
+    async def remove_player(self, user_id: str):
+        """Handle disconnect: drop from alive set and notify peers."""
+        if user_id not in self.alive_players:
+            return
+        self.alive_players.discard(user_id)
+        if self.score_manager:
+            self.score_manager.eliminate_player(user_id, "disconnect", self.current_round)
+        await self._broadcast_alive_count()
 
     async def stop(self):
         self.is_running = False
@@ -88,6 +113,11 @@ class GameLoop:
 
         try:
             while self.is_running:
+                # Wait until at least one player is connected before spawning taupes
+                if not self.alive_players:
+                    await asyncio.sleep(0.5)
+                    continue
+
                 if len(self.alive_players) <= 1 and self.initial_player_count > 1:
                     print("🏁 Game over — only one player alive")
                     await ws_manager.broadcast({

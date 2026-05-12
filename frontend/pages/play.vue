@@ -54,7 +54,7 @@
           ref="keyboardRef"
           :active-key="activeKey"
           :wrong-key="wrongKey"
-          :layout="prefs.layout"
+          :layout="layout"
           @key-press="handleKeyPress"
         />
         <!-- Mole digs up out of the active key's hole -->
@@ -143,9 +143,8 @@
 <script setup>
 import Keyboard from '~/components/Keyboard.vue'
 import Scene from '~/components/Scene.vue'
-import { usePreferencesStore } from '~/stores/preferences'
 
-const prefs = usePreferencesStore()
+const layout = ref('QWERTY')
 const score = ref(0)
 const currentRound = ref(0)
 const combo = ref(0)
@@ -206,8 +205,17 @@ function updateMolePosition() {
 watch(activeKey, updateMolePosition)
 onUpdated(updateMolePosition)
 
+async function fetchSessionLayout() {
+  if (!selectedSessionId.value) return
+  try {
+    const data = await $fetch(`/api/admin/sessions/${selectedSessionId.value}`, { credentials: 'include' })
+    const l = data?.config_json?.keyboard_layout
+    if (l === 'QWERTY' || l === 'AZERTY' || l === 'NUMPAD') layout.value = l
+  } catch (e) { /* fall back to QWERTY */ }
+}
+
 onMounted(() => {
-  prefs.hydrate()
+  fetchSessionLayout()
   try {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const wsUrl = `${proto}//${window.location.host}/ws`

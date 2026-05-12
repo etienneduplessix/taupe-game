@@ -9,21 +9,26 @@ class ScoreManager:
     def __init__(self, session_id: str, initial_players: Set[str], config: dict):
         self.session_id = session_id
         self.config = config
-        self.scores: Dict[str, Dict] = {
-            user_id: {
-                "score": 0,
-                "hits": 0,
-                "misses": 0,
-                "timeouts": 0,
-                "latencies": [],
-                "consecutive_hits": 0,
-                "total_mistakes": 0,
-                "eliminated": False,
-                "reason": None,
-                "elimination_round": None
-            } for user_id in initial_players
-        }
+        self.scores: Dict[str, Dict] = {}
+        for user_id in initial_players:
+            self.add_player(user_id)
         self.pending_attempts: List[Attempt] = []
+
+    def add_player(self, user_id: str):
+        if user_id in self.scores:
+            return
+        self.scores[user_id] = {
+            "score": 0,
+            "hits": 0,
+            "misses": 0,
+            "timeouts": 0,
+            "latencies": [],
+            "consecutive_hits": 0,
+            "total_mistakes": 0,
+            "eliminated": False,
+            "reason": None,
+            "elimination_round": None
+        }
 
     def update_score(self, user_id: str, round_id: str, latency_ms: int, outcome: str, round_number: int):
         if user_id not in self.scores or self.scores[user_id]["eliminated"]:
