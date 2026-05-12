@@ -118,7 +118,7 @@
 
     <!-- Eliminated overlay -->
     <Transition name="fade">
-      <div v-if="isEliminated" class="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 scanlines">
+      <div v-if="isEliminated && !isWinner" class="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 scanlines">
         <div class="panel-3d p-10 text-center max-w-lg w-full mx-4" style="border-color: rgba(239,68,68,0.6);">
           <div class="text-8xl mb-4 animate-float">☠️</div>
           <h2 class="title-3d text-5xl md:text-6xl mb-4" style="color: #fca5a5;">ELIMINATED</h2>
@@ -140,14 +140,55 @@
         </div>
       </div>
     </Transition>
+
+    <!-- Victory overlay -->
+    <Transition name="fade">
+      <div v-if="isWinner" class="fixed inset-0 victory-bg flex items-center justify-center z-50 overflow-hidden">
+        <!-- Confetti particles -->
+        <div
+          v-for="i in 40"
+          :key="`confetti-${i}`"
+          class="confetti"
+          :style="confettiStyle(i)"
+        >{{ confettiEmoji(i) }}</div>
+
+        <!-- Radial flash bursts -->
+        <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div class="burst burst-1"></div>
+          <div class="burst burst-2"></div>
+          <div class="burst burst-3"></div>
+        </div>
+
+        <div class="panel-3d p-10 text-center max-w-xl w-full mx-4 relative" style="border-color: rgba(250, 204, 21, 0.9); box-shadow: 0 0 60px rgba(250, 204, 21, 0.5);">
+          <div class="text-9xl mb-4 animate-trophy-pop inline-block">🏆</div>
+          <h2 class="title-3d text-6xl md:text-7xl mb-2 animate-rainbow">VICTORY!</h2>
+          <p class="font-display text-lg text-amber-100 mb-2">Last taupe standing — that's you!</p>
+          <div class="font-arcade text-[10px] text-amber-300 mb-6 animate-pulse">🎉 LAST PLAYER ALIVE 🎉</div>
+          <div class="chip !px-6 !py-3 mb-6 mx-auto" style="border-color: rgba(250, 204, 21, 0.8);">
+            <span class="text-2xl">💰</span>
+            <div>
+              <div class="font-arcade text-[9px] text-amber-300">FINAL SCORE</div>
+              <div class="font-arcade text-3xl text-yellow-300">{{ score.toString().padStart(5, '0') }}</div>
+            </div>
+          </div>
+          <NuxtLink to="/" class="btn-3d btn-primary">
+            <span class="text-xl">🏠</span>
+            Back to Lobby
+          </NuxtLink>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
 <script setup>
 import Keyboard from '~/components/Keyboard.vue'
 import Scene from '~/components/Scene.vue'
+import { useAuthStore } from '~/stores/auth'
 
+const authStore = useAuthStore()
 const layout = ref('QWERTY')
+const isWinner = ref(false)
 const score = ref(0)
 const currentRound = ref(0)
 const combo = ref(0)
@@ -232,8 +273,14 @@ async function fetchSessionInfo() {
   } catch (e) { /* fall back to QWERTY */ }
 }
 
-onMounted(() => {
+onMounted(async () => {
   fetchSessionInfo()
+  if (!authStore.user) {
+    try {
+      const me = await $fetch('/api/me', { credentials: 'include' })
+      if (me) authStore.setUser(me)
+    } catch (e) { /* leave unauthenticated */ }
+  }
   try {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const sid = selectedSessionId.value
@@ -264,6 +311,10 @@ onMounted(() => {
       else if (message.type === 'game_over') {
         if (!message.data?.session_id || message.data.session_id === selectedSessionId.value) {
           sessionStatus.value = 'ended'
+          const me = authStore.user?.id
+          if (me && message.data?.winner_id && message.data.winner_id === me) {
+            isWinner.value = true
+          }
         }
       }
       else if (message.type === 'chat') {
@@ -321,9 +372,105 @@ onUnmounted(() => {
   if (socket) socket.close()
   if (feedbackTimer) clearTimeout(feedbackTimer)
 })
+
+const CONFETTI_EMOJI = ['🎉', '🎊', '✨', '⭐', '🎆', '🎇', '🌟', '💫', '🏆', '🐹']
+function confettiEmoji(i) { return CONFETTI_EMOJI[i % CONFETTI_EMOJI.length] }
+function confettiStyle(i) {
+  const left = (i * 137) % 100
+  const delay = (i * 113) % 3000
+  const duration = 2500 + (i * 97) % 2500
+  const size = 18 + (i * 53) % 22
+  const drift = ((i * 31) % 200) - 100
+  return {
+    left: `${left}%`,
+    fontSize: `${size}px`,
+    animationDelay: `${delay}ms`,
+    animationDuration: `${duration}ms`,
+    '--drift': `${drift}px`,
+  }
+}
 </script>
 
 <style scoped>
 .fade-enter-active, .fade-leave-active { transition: opacity 300ms; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
+
+/* Victory background — pulsing radial gradient */
+.victory-bg {
+  background:
+    radial-gradient(ellipse at center, rgba(250, 204, 21, 0.35) 0%, rgba(0, 0, 0, 0.85) 60%),
+    rgba(0, 0, 0, 0.85);
+  animation: victory-pulse 1.6s ease-in-out infinite;
+}
+@keyframes victory-pulse {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.25); }
+}
+
+/* Falling confetti */
+.confetti {
+  position: absolute;
+  top: -10vh;
+  pointer-events: none;
+  user-select: none;
+  animation-name: confetti-fall;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4));
+}
+@keyframes confetti-fall {
+  0%   { transform: translate(0, 0) rotate(0deg); opacity: 0; }
+  10%  { opacity: 1; }
+  100% { transform: translate(var(--drift), 110vh) rotate(720deg); opacity: 1; }
+}
+
+/* Trophy pop-in */
+.animate-trophy-pop {
+  animation: trophy-pop 1.2s cubic-bezier(0.34, 1.56, 0.64, 1) both, trophy-bob 2s ease-in-out 1.2s infinite;
+  filter: drop-shadow(0 8px 16px rgba(250, 204, 21, 0.7));
+}
+@keyframes trophy-pop {
+  0%   { transform: scale(0) rotate(-180deg); opacity: 0; }
+  60%  { transform: scale(1.3) rotate(20deg); opacity: 1; }
+  80%  { transform: scale(0.9) rotate(-10deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+@keyframes trophy-bob {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50%      { transform: translateY(-12px) rotate(4deg); }
+}
+
+/* VICTORY rainbow text */
+.animate-rainbow {
+  background: linear-gradient(90deg, #fde047, #fb923c, #f472b6, #a78bfa, #60a5fa, #34d399, #fde047);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: rainbow-slide 3s linear infinite;
+  text-shadow: 0 4px 16px rgba(250, 204, 21, 0.4);
+}
+@keyframes rainbow-slide {
+  0%   { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+/* Radial burst rings emanating from center */
+.burst {
+  position: absolute;
+  border-radius: 50%;
+  border: 3px solid rgba(250, 204, 21, 0.8);
+  width: 200px;
+  height: 200px;
+  animation: burst-expand 1.4s ease-out infinite;
+  opacity: 0;
+}
+.burst-1 { animation-delay: 0s; }
+.burst-2 { animation-delay: 0.45s; border-color: rgba(248, 113, 113, 0.7); }
+.burst-3 { animation-delay: 0.9s; border-color: rgba(167, 139, 250, 0.7); }
+@keyframes burst-expand {
+  0%   { transform: scale(0.1); opacity: 1; border-width: 8px; }
+  100% { transform: scale(5); opacity: 0; border-width: 1px; }
+}
 </style>
