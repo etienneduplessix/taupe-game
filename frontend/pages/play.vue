@@ -121,7 +121,7 @@
           <h2 class="title-3d text-5xl md:text-6xl mb-4" style="color: #fca5a5;">ELIMINATED</h2>
           <p class="text-purple-200 mb-2 font-display">The taupes got you.</p>
           <div v-if="eliminationReason" class="font-arcade text-[10px] text-red-300 mb-6">
-            REASON: {{ eliminationReason.toUpperCase() }}
+            REASON: {{ eliminationReasonLabel }}
           </div>
           <div class="chip !px-6 !py-3 mb-6 mx-auto">
             <span class="text-2xl">💰</span>
@@ -154,6 +154,16 @@ const activeRoundId = ref(null)
 const wrongKey = ref(null)
 const isEliminated = ref(false)
 const eliminationReason = ref(null)
+const REASON_LABELS = {
+  mistakes: 'TOO MANY MISTAKES',
+  speed: 'TOO SLOW',
+  disconnect: 'DISCONNECTED',
+}
+const eliminationReasonLabel = computed(() => {
+  const r = eliminationReason.value
+  if (!r) return ''
+  return REASON_LABELS[r] || r.toUpperCase()
+})
 const feedback = ref(null)
 const keyboardRef = ref(null)
 const molePosition = ref(null)

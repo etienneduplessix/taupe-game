@@ -141,23 +141,45 @@ async def end_session(session_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/sessions/{session_id}/stats")
-async def get_session_stats(session_id: str):
+async def get_session_stats(session_id: str, db: AsyncSession = Depends(get_db)):
     if session_id not in active_games:
         return {"error": "No active game loop for this session"}
 
     game = active_games[session_id]
-    sorted_scores = []
+    top_scores = []
     if game.score_manager:
         sorted_scores = sorted(
             game.score_manager.scores.items(),
             key=lambda x: x[1]["score"],
             reverse=True,
-        )[:10]
+        )
+
+        user_ids = [uid for uid, _ in sorted_scores]
+        user_map = {}
+        if user_ids:
+            rows = await db.execute(select(User).where(User.id.in_(user_ids)))
+            for u in rows.scalars().all():
+                user_map[u.id] = {
+                    "display_name": u.display_name or u.ft_login,
+                    "login": u.ft_login,
+                }
+
+        for uid, score in sorted_scores:
+            info = user_map.get(uid, {})
+            top_scores.append({
+                "user_id": uid,
+                "display_name": info.get("display_name") or uid,
+                "login": info.get("login") or uid,
+                "score": score["score"],
+                "hits": score["hits"],
+                "misses": score["misses"],
+                "eliminated": score["eliminated"],
+            })
 
     return {
         "alive_count": len(game.alive_players),
         "current_round": game.current_round,
         "current_interval": game.config.get("base_spawn_interval_ms"),
         "current_timeout": game.config.get("base_timeout_ms"),
-        "top_scores": sorted_scores,
+        "top_scores": top_scores,
     }

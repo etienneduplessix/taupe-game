@@ -65,19 +65,24 @@
 
         <!-- Leaderboard -->
         <div class="lg:col-span-2 panel-3d p-5">
-          <h2 class="title-3d text-2xl mb-4">🏆 TOP 10</h2>
+          <h2 class="title-3d text-2xl mb-4">🏆 LEADERBOARD <span class="font-arcade text-[10px] text-amber-300/70 align-middle">({{ stats.top_scores?.length || 0 }})</span></h2>
           <div v-if="!stats.top_scores || stats.top_scores.length === 0" class="text-center py-10 font-arcade text-[10px] text-purple-200/60">
             NO PLAYERS YET...
           </div>
           <div v-else class="flex flex-col gap-2">
             <div
               v-for="(entry, i) in stats.top_scores"
-              :key="i"
+              :key="entry.user_id || i"
               class="flex items-center gap-3 p-3 bg-[#1a0f08]/60 border border-amber-400/20 rounded-lg"
+              :class="entry.eliminated ? 'opacity-50' : ''"
             >
               <div class="font-arcade text-xl w-10" :class="rankColor(i)">#{{ i + 1 }}</div>
-              <div class="font-display font-bold text-amber-100 flex-1 truncate">{{ entry[0] }}</div>
-              <div class="font-arcade text-xl text-yellow-300">{{ String(entry[1].score).padStart(5, '0') }}</div>
+              <div class="flex-1 min-w-0">
+                <div class="font-display font-bold text-amber-100 truncate">{{ entry.display_name }}</div>
+                <div class="font-arcade text-[8px] text-amber-300/70 truncate">@{{ entry.login }}</div>
+              </div>
+              <div v-if="entry.eliminated" class="font-arcade text-[8px] text-red-300">OUT</div>
+              <div class="font-arcade text-xl text-yellow-300">{{ String(entry.score).padStart(5, '0') }}</div>
             </div>
           </div>
         </div>
