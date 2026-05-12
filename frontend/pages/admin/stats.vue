@@ -61,6 +61,30 @@
             <div class="font-arcade text-[10px] text-amber-300 mb-2">TAUPE TIMEOUT</div>
             <div class="font-display text-3xl text-amber-100 font-bold">{{ stats.current_timeout }}ms</div>
           </div>
+
+          <!-- Coalition leaderboard -->
+          <div class="panel-3d p-5">
+            <h2 class="title-3d text-xl mb-3">⚔️ COALITIONS</h2>
+            <div v-if="!stats.coalitions_ranking || stats.coalitions_ranking.length === 0" class="text-center py-4 font-arcade text-[9px] text-purple-200/60">
+              NO COALITION DATA
+            </div>
+            <div v-else class="flex flex-col gap-2">
+              <div
+                v-for="(c, i) in stats.coalitions_ranking"
+                :key="c.id"
+                class="flex items-center gap-3 p-2 bg-[#1a0f08]/60 border rounded-lg"
+                :style="{ borderColor: (c.color || '#fcd34d') + '99' }"
+              >
+                <div class="font-arcade text-lg w-7" :class="rankColor(i)">#{{ i + 1 }}</div>
+                <img v-if="c.image_url" :src="c.image_url" class="w-8 h-8 object-contain" />
+                <div class="flex-1 min-w-0">
+                  <div class="font-display font-bold truncate" :style="{ color: c.color || '#fcd34d' }">{{ c.name }}</div>
+                  <div class="font-arcade text-[8px] text-amber-300/70">{{ c.player_count }} player{{ c.player_count === 1 ? '' : 's' }}</div>
+                </div>
+                <div class="font-arcade text-lg text-yellow-300">{{ String(c.score).padStart(5, '0') }}</div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Leaderboard -->
@@ -73,13 +97,25 @@
             <div
               v-for="(entry, i) in stats.top_scores"
               :key="entry.user_id || i"
-              class="flex items-center gap-3 p-3 bg-[#1a0f08]/60 border border-amber-400/20 rounded-lg"
+              class="flex items-center gap-3 p-3 bg-[#1a0f08]/60 border rounded-lg"
               :class="entry.eliminated ? 'opacity-50' : ''"
+              :style="entry.coalition ? { borderColor: (entry.coalition.color || '#fcd34d') + '66' } : { borderColor: 'rgba(251, 191, 36, 0.2)' }"
             >
               <div class="font-arcade text-xl w-10" :class="rankColor(i)">#{{ i + 1 }}</div>
+              <img
+                v-if="entry.coalition && entry.coalition.image_url"
+                :src="entry.coalition.image_url"
+                :title="entry.coalition.name"
+                class="w-8 h-8 object-contain shrink-0"
+              />
               <div class="flex-1 min-w-0">
                 <div class="font-display font-bold text-amber-100 truncate">{{ entry.display_name }}</div>
-                <div class="font-arcade text-[8px] text-amber-300/70 truncate">@{{ entry.login }}</div>
+                <div class="font-arcade text-[8px] truncate flex items-center gap-2">
+                  <span class="text-amber-300/70">@{{ entry.login }}</span>
+                  <span v-if="entry.coalition" :style="{ color: entry.coalition.color || '#fcd34d' }">
+                    · {{ entry.coalition.name }}
+                  </span>
+                </div>
               </div>
               <div v-if="entry.eliminated" class="font-arcade text-[8px] text-red-300">OUT</div>
               <div class="font-arcade text-xl text-yellow-300">{{ String(entry.score).padStart(5, '0') }}</div>

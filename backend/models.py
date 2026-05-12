@@ -9,9 +9,15 @@ class User(Base):
     __tablename__ = "users"
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     ft_login = Column(String, unique=True, index=True, nullable=False)
+    ft_user_id = Column(BigInteger, index=True, nullable=True)  # 42 numeric intra id
     display_name = Column(String)
     avatar_url = Column(String)
     is_admin = Column(Boolean, default=False)
+    coalition_id = Column(Integer, index=True, nullable=True)
+    coalition_name = Column(String, nullable=True)
+    coalition_slug = Column(String, nullable=True)
+    coalition_color = Column(String, nullable=True)
+    coalition_image_url = Column(String, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
 class Session(Base):

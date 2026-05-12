@@ -29,9 +29,22 @@ app.include_router(admin_router)
 
 @app.on_event("startup")
 async def startup():
+    from sqlalchemy import text
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    
+        # Idempotently add coalition columns to existing users table (Postgres)
+        for stmt in [
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS ft_user_id BIGINT",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS coalition_id INTEGER",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS coalition_name VARCHAR",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS coalition_slug VARCHAR",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS coalition_color VARCHAR",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS coalition_image_url VARCHAR",
+            "CREATE INDEX IF NOT EXISTS ix_users_ft_user_id ON users (ft_user_id)",
+            "CREATE INDEX IF NOT EXISTS ix_users_coalition_id ON users (coalition_id)",
+        ]:
+            await conn.execute(text(stmt))
+
     # Start the Redis event listener in the background
     asyncio.create_task(ws_manager.listen_for_events())
 
@@ -57,6 +70,7 @@ async def auth_callback(code: str, response: Response, db: AsyncSession = Depend
         token = await oauth_42.get_access_token(code)
         user_info = await oauth_42.get_user_info(token)
         ft_login = user_info.get("login")
+        ft_user_id = user_info.get("id")
 
         if not ft_login:
             raise HTTPException(status_code=400, detail="Login not found in user info")
@@ -67,6 +81,7 @@ async def auth_callback(code: str, response: Response, db: AsyncSession = Depend
         if not user:
             user = User(
                 ft_login=ft_login,
+                ft_user_id=ft_user_id,
                 display_name=user_info.get("display_name", ft_login),
                 avatar_url=user_info.get("avatar_url"),
                 is_admin=ft_login in settings.admin_list
@@ -76,6 +91,19 @@ async def auth_callback(code: str, response: Response, db: AsyncSession = Depend
             await db.refresh(user)
         else:
             user.is_admin = ft_login in settings.admin_list
+            if ft_user_id and not user.ft_user_id:
+                user.ft_user_id = ft_user_id
+            await db.commit()
+
+        # Fetch coalition info (best-effort; falls back silently)
+        coalitions = await oauth_42.get_user_coalitions(ft_user_id or ft_login)
+        if coalitions:
+            c = coalitions[0]
+            user.coalition_id = c.get("id")
+            user.coalition_name = c.get("name")
+            user.coalition_slug = c.get("slug")
+            user.coalition_color = c.get("color")
+            user.coalition_image_url = c.get("image_url")
             await db.commit()
 
         token_str = create_session_token(user.id)
@@ -111,7 +139,14 @@ async def get_me(request: Request, db: AsyncSession = Depends(get_db)):
         "login": user.ft_login,
         "display_name": user.display_name,
         "avatar_url": user.avatar_url,
-        "is_admin": user.is_admin
+        "is_admin": user.is_admin,
+        "coalition": {
+            "id": user.coalition_id,
+            "name": user.coalition_name,
+            "slug": user.coalition_slug,
+            "color": user.coalition_color,
+            "image_url": user.coalition_image_url,
+        } if user.coalition_id else None,
     }
 
 # --- Game Infrastructure ---

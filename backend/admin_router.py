@@ -9,6 +9,7 @@ from models import Session as GameSession, User, Round, Attempt, SessionScore
 from sqlalchemy import delete as sql_delete
 from config import settings
 from game_loop import active_games, start_game, DEFAULT_CONFIG
+from auth_service import oauth_42
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -147,6 +148,7 @@ async def get_session_stats(session_id: str, db: AsyncSession = Depends(get_db))
 
     game = active_games[session_id]
     top_scores = []
+    coalitions_ranking = []
     if game.score_manager:
         sorted_scores = sorted(
             game.score_manager.scores.items(),
@@ -156,25 +158,68 @@ async def get_session_stats(session_id: str, db: AsyncSession = Depends(get_db))
 
         user_ids = [uid for uid, _ in sorted_scores]
         user_map = {}
+        users_needing_coalition = []
         if user_ids:
             rows = await db.execute(select(User).where(User.id.in_(user_ids)))
             for u in rows.scalars().all():
-                user_map[u.id] = {
-                    "display_name": u.display_name or u.ft_login,
-                    "login": u.ft_login,
-                }
+                user_map[u.id] = u
+                if not u.coalition_id and (u.ft_user_id or u.ft_login):
+                    users_needing_coalition.append(u)
 
+        # Lazy-fetch coalition info for users who logged in before this feature
+        for u in users_needing_coalition:
+            coalitions = await oauth_42.get_user_coalitions(u.ft_user_id or u.ft_login)
+            if coalitions:
+                c = coalitions[0]
+                u.coalition_id = c.get("id")
+                u.coalition_name = c.get("name")
+                u.coalition_slug = c.get("slug")
+                u.coalition_color = c.get("color")
+                u.coalition_image_url = c.get("image_url")
+        if users_needing_coalition:
+            await db.commit()
+
+        coalition_totals: dict[int, dict] = {}
         for uid, score in sorted_scores:
-            info = user_map.get(uid, {})
+            u = user_map.get(uid)
+            display_name = (u.display_name if u else None) or (u.ft_login if u else None) or uid
+            login = (u.ft_login if u else None) or uid
+            coalition = None
+            if u and u.coalition_id:
+                coalition = {
+                    "id": u.coalition_id,
+                    "name": u.coalition_name,
+                    "slug": u.coalition_slug,
+                    "color": u.coalition_color,
+                    "image_url": u.coalition_image_url,
+                }
+                bucket = coalition_totals.setdefault(u.coalition_id, {
+                    "id": u.coalition_id,
+                    "name": u.coalition_name,
+                    "slug": u.coalition_slug,
+                    "color": u.coalition_color,
+                    "image_url": u.coalition_image_url,
+                    "score": 0,
+                    "player_count": 0,
+                    "hits": 0,
+                    "misses": 0,
+                })
+                bucket["score"] += score["score"]
+                bucket["player_count"] += 1
+                bucket["hits"] += score["hits"]
+                bucket["misses"] += score["misses"]
             top_scores.append({
                 "user_id": uid,
-                "display_name": info.get("display_name") or uid,
-                "login": info.get("login") or uid,
+                "display_name": display_name,
+                "login": login,
                 "score": score["score"],
                 "hits": score["hits"],
                 "misses": score["misses"],
                 "eliminated": score["eliminated"],
+                "coalition": coalition,
             })
+
+        coalitions_ranking = sorted(coalition_totals.values(), key=lambda c: c["score"], reverse=True)
 
     return {
         "alive_count": len(game.alive_players),
@@ -182,4 +227,5 @@ async def get_session_stats(session_id: str, db: AsyncSession = Depends(get_db))
         "current_interval": game.config.get("base_spawn_interval_ms"),
         "current_timeout": game.config.get("base_timeout_ms"),
         "top_scores": top_scores,
+        "coalitions_ranking": coalitions_ranking,
     }
