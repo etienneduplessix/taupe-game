@@ -22,7 +22,7 @@
         </p>
       </div>
 
-      <div v-if="user" class="panel-3d p-7 max-w-lg w-full">
+      <div v-if="user" class="panel-3d p-12 max-w-lg w-full">
         <div class="flex items-center gap-4 mb-6 pb-6 border-b border-amber-500/20">
           <div class="relative">
             <img v-if="user.avatar_url" :src="user.avatar_url" class="w-16 h-16 rounded-full border-4 border-amber-400 shadow-lg" />
@@ -81,8 +81,8 @@
         <p class="text-gray-300 mt-4 font-display">Loading...</p>
       </div>
 
-      <div class="mt-20 text-center max-w-md">
-        <div class="font-arcade text-[9px] text-amber-300/80 mb-2 tracking-widest">HOW TO PLAY</div>
+      <div class="mt-20 px-8 py-6 text-center max-w-md">
+        <div class="font-arcade text-[9px] text-amber-300/80 mb-3 tracking-widest">HOW TO PLAY</div>
         <p class="text-xs text-purple-100/60 font-display leading-relaxed">
           A taupe pops out with a letter. Smash that key fast.<br/>
           Miss too many or be too slow? You're out.<br/>
