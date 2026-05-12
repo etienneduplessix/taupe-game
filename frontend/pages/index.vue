@@ -81,12 +81,12 @@
         <p class="text-gray-300 mt-4 font-display">Loading...</p>
       </div>
 
-      <div class="mt-20 px-8 py-6 text-center max-w-md">
-        <div class="font-arcade text-[9px] text-amber-300/80 mb-3 tracking-widest">HOW TO PLAY</div>
-        <p class="text-xs text-purple-100/60 font-display leading-relaxed">
+      <div class="mt-20 px-8 py-6 text-center max-w-md animate-flash-white">
+        <div class="font-arcade text-[9px] mb-3 tracking-widest">HOW TO PLAY</div>
+        <p class="text-xs font-display leading-relaxed">
           A taupe pops out with a letter. Smash that key fast.<br/>
           Miss too many or be too slow? You're out.<br/>
-          <span class="text-amber-300/80 font-semibold">Last player alive wins.</span>
+          <span class="font-semibold">Last player alive wins.</span>
         </p>
       </div>
     </div>
@@ -135,3 +135,17 @@ async function logout() {
   navigateTo('/login')
 }
 </script>
+
+<style scoped>
+.animate-flash-white,
+.animate-flash-white * {
+  color: #ffffff !important;
+}
+.animate-flash-white {
+  animation: flash-white 1.4s ease-in-out infinite;
+}
+@keyframes flash-white {
+  0%, 100% { opacity: 0.55; text-shadow: none; }
+  50%      { opacity: 1; text-shadow: 0 0 10px rgba(255,255,255,0.85), 0 0 22px rgba(255,255,255,0.45); }
+}
+</style>
