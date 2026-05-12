@@ -81,12 +81,12 @@
         <p class="text-gray-300 mt-4 font-display">Loading...</p>
       </div>
 
-      <div class="mt-8 text-center max-w-md">
-        <div class="font-arcade text-[10px] text-amber-300 mb-2 tracking-widest">HOW TO PLAY</div>
-        <p class="text-sm text-purple-100/80 font-display">
+      <div class="mt-20 text-center max-w-md">
+        <div class="font-arcade text-[9px] text-amber-300/80 mb-2 tracking-widest">HOW TO PLAY</div>
+        <p class="text-xs text-purple-100/60 font-display leading-relaxed">
           A taupe pops out with a letter. Smash that key fast.<br/>
           Miss too many or be too slow? You're out.<br/>
-          <span class="text-amber-300 font-semibold">Last player alive wins.</span>
+          <span class="text-amber-300/80 font-semibold">Last player alive wins.</span>
         </p>
       </div>
     </div>

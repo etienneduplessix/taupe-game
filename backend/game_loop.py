@@ -27,7 +27,8 @@ DEFAULT_CONFIG = {
     "speed_window_size": 10,
     "max_avg_latency_ms": 800,
     "timeouts_count_as_mistakes": True,
-    "keyboard_layout": "QWERTY"
+    "keyboard_layout": "QWERTY",
+    "countdown_seconds": 5
 }
 
 # Keys actually rendered by each frontend layout. Spawn pool is intersected
@@ -121,6 +122,26 @@ class GameLoop:
         # Store initial count for scaling
         self.initial_player_count = len(self.alive_players)
         print(f"🎮 Game loop starting, initial players: {self.initial_player_count}")
+
+        # Pre-game countdown so queued players have a moment to focus
+        if self.initial_player_count > 0:
+            try:
+                countdown = int(self.config.get("countdown_seconds", 5) or 0)
+            except (TypeError, ValueError):
+                countdown = 5
+            for n in range(countdown, 0, -1):
+                if not self.is_running:
+                    break
+                await ws_manager.broadcast({
+                    "type": "countdown",
+                    "data": {"session_id": self.session_id, "seconds": n}
+                })
+                await asyncio.sleep(1.0)
+            if self.is_running:
+                await ws_manager.broadcast({
+                    "type": "countdown",
+                    "data": {"session_id": self.session_id, "seconds": 0}
+                })
 
         try:
             while self.is_running:

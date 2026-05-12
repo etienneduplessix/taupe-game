@@ -116,6 +116,23 @@
       </form>
     </div>
 
+    <!-- Pre-game countdown -->
+    <Transition name="fade">
+      <div
+        v-if="countdownValue !== null"
+        class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-40 pointer-events-none"
+      >
+        <div
+          :key="countdownValue"
+          class="font-arcade animate-countdown-pop drop-shadow-[0_8px_24px_rgba(250,204,21,0.6)]"
+          :class="countdownValue === 0 ? 'text-green-300' : 'text-yellow-300'"
+          style="font-size: clamp(8rem, 22vw, 18rem); line-height: 1;"
+        >
+          {{ countdownValue === 0 ? 'GO!' : countdownValue }}
+        </div>
+      </div>
+    </Transition>
+
     <!-- Eliminated overlay -->
     <Transition name="fade">
       <div v-if="isEliminated && !isWinner" class="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50 scanlines">
@@ -215,7 +232,9 @@ const route = useRoute()
 const selectedSessionId = computed(() => route.query.sessionId || null)
 const sessionStatus = ref('waiting')
 const queueCount = ref(0)
+const countdownValue = ref(null)
 const gameStarted = computed(() => sessionStatus.value === 'running')
+let countdownTimer = null
 const chatMessages = ref([])
 const chatInput = ref('')
 const chatListEl = ref(null)
@@ -308,6 +327,17 @@ onMounted(async () => {
           if (typeof message.data?.count === 'number') queueCount.value = message.data.count
         }
       }
+      else if (message.type === 'countdown') {
+        if (!message.data?.session_id || message.data.session_id === selectedSessionId.value) {
+          countdownValue.value = message.data.seconds
+          sessionStatus.value = 'running'
+          if (countdownTimer) clearTimeout(countdownTimer)
+          // Clear the overlay shortly after 0 so 'GO!' has a frame to show
+          if (message.data.seconds === 0) {
+            countdownTimer = setTimeout(() => { countdownValue.value = null }, 700)
+          }
+        }
+      }
       else if (message.type === 'game_over') {
         if (!message.data?.session_id || message.data.session_id === selectedSessionId.value) {
           sessionStatus.value = 'ended'
@@ -371,6 +401,7 @@ function handleKeyPress(key) {
 onUnmounted(() => {
   if (socket) socket.close()
   if (feedbackTimer) clearTimeout(feedbackTimer)
+  if (countdownTimer) clearTimeout(countdownTimer)
 })
 
 const CONFETTI_EMOJI = ['🎉', '🎊', '✨', '⭐', '🎆', '🎇', '🌟', '💫', '🏆', '🐹']
@@ -394,6 +425,17 @@ function confettiStyle(i) {
 <style scoped>
 .fade-enter-active, .fade-leave-active { transition: opacity 300ms; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
+
+/* Countdown digit pop */
+.animate-countdown-pop {
+  animation: countdown-pop 900ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+@keyframes countdown-pop {
+  0%   { transform: scale(0.2); opacity: 0; }
+  35%  { transform: scale(1.25); opacity: 1; }
+  60%  { transform: scale(1); }
+  100% { transform: scale(1.1); opacity: 0.85; }
+}
 
 /* Victory background — pulsing radial gradient */
 .victory-bg {
