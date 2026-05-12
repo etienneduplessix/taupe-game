@@ -10,8 +10,9 @@ from sqlalchemy import delete as sql_delete
 from config import settings
 from game_loop import active_games, start_game, DEFAULT_CONFIG
 from auth_service import oauth_42
+from session import require_admin
 
-router = APIRouter(prefix="/api/admin", tags=["admin"])
+router = APIRouter(prefix="/api/admin", tags=["admin"], dependencies=[Depends(require_admin)])
 
 
 class CreateSessionBody(BaseModel):

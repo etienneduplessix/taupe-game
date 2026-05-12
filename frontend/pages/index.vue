@@ -45,8 +45,8 @@
           </div>
           <div v-else-if="runningSessions.length === 0" class="panel-3d p-5 text-center">
             <div class="text-4xl mb-2">💤</div>
-            <div class="font-arcade text-[10px] text-amber-300">NO RUNNING GAMES</div>
-            <div class="text-xs text-purple-200/70 mt-1 font-display">Ask an admin to start one!</div>
+            <div class="font-arcade text-[10px] text-amber-300">NO OPEN GAMES</div>
+            <div class="text-xs text-purple-200/70 mt-1 font-display">Ask an admin to create one!</div>
           </div>
           <div v-else class="flex flex-col gap-2">
             <div class="font-arcade text-[10px] text-amber-300 mb-1">PICK A GAME</div>
@@ -54,13 +54,16 @@
               v-for="s in runningSessions"
               :key="s.id"
               :to="`/play?sessionId=${s.id}`"
-              class="btn-3d btn-success !py-3 flex items-center justify-between"
+              :class="['btn-3d', '!py-3', 'flex', 'items-center', 'justify-between', s.status === 'running' ? 'btn-success' : 'btn-primary']"
             >
               <span class="flex items-center gap-2">
-                <span class="text-xl">⚡</span>
+                <span class="text-xl">{{ s.status === 'running' ? '⚡' : '⏳' }}</span>
                 <span>{{ s.name }}</span>
+                <span v-if="s.status === 'waiting'" class="font-arcade text-[8px] text-white/70">· {{ s.queue_count }} 👥 QUEUED</span>
               </span>
-              <span class="font-arcade text-[9px] text-white/80">JOIN →</span>
+              <span class="font-arcade text-[9px] text-white/80">
+                {{ s.status === 'running' ? 'JOIN →' : 'QUEUE →' }}
+              </span>
             </NuxtLink>
           </div>
           <NuxtLink v-if="user.is_admin" to="/admin" class="btn-3d btn-admin">
@@ -102,8 +105,8 @@ const loadingSessions = ref(true)
 async function fetchSessions() {
   loadingSessions.value = true
   try {
-    const data = await $fetch('/api/admin/sessions', { credentials: 'include' })
-    runningSessions.value = data.filter(s => s.status === 'running')
+    const data = await $fetch('/api/sessions', { credentials: 'include' })
+    runningSessions.value = data
   } catch (e) {
     runningSessions.value = []
   } finally {
@@ -111,12 +114,16 @@ async function fetchSessions() {
   }
 }
 
+let pollInterval = null
+onUnmounted(() => { if (pollInterval) clearInterval(pollInterval) })
+
 onMounted(async () => {
   try {
     const userData = await $fetch('/api/me')
     if (userData) {
       authStore.setUser(userData)
       fetchSessions()
+      pollInterval = setInterval(fetchSessions, 2000)
     }
     else navigateTo('/login')
   } catch (e) { navigateTo('/login') }

@@ -130,6 +130,8 @@
 <script setup>
 import Scene from '~/components/Scene.vue'
 
+definePageMeta({ middleware: 'admin' })
+
 const config = useRuntimeConfig()
 const API = config.public.apiBase
 const route = useRoute()

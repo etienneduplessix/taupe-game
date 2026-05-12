@@ -224,7 +224,7 @@ onUpdated(updateMolePosition)
 async function fetchSessionInfo() {
   if (!selectedSessionId.value) return
   try {
-    const data = await $fetch(`/api/admin/sessions/${selectedSessionId.value}`, { credentials: 'include' })
+    const data = await $fetch(`/api/sessions/${selectedSessionId.value}`, { credentials: 'include' })
     const l = data?.config_json?.keyboard_layout
     if (l === 'QWERTY' || l === 'AZERTY' || l === 'NUMPAD') layout.value = l
     if (data?.status) sessionStatus.value = data.status

@@ -281,6 +281,39 @@ async def start_game_endpoint(session_id: str, db: AsyncSession = Depends(get_db
 async def health():
     return {"status": "ok"}
 
+
+# --- Public session info (used by the player lobby + play page) ---
+
+def _public_session(s, queue_count: int) -> dict:
+    return {
+        "id": s.id,
+        "name": s.name,
+        "status": s.status,
+        "queue_count": queue_count,
+        "config_json": {
+            "keyboard_layout": (s.config_json or {}).get("keyboard_layout", "QWERTY"),
+        },
+    }
+
+
+@app.get("/api/sessions")
+async def list_public_sessions(db: AsyncSession = Depends(get_db)):
+    """Sessions joinable by players (waiting + running)."""
+    result = await db.execute(
+        select(GameSession).where(GameSession.status.in_(["waiting", "running"]))
+    )
+    sessions = result.scalars().all()
+    return [_public_session(s, len(session_queues.get(s.id, set()))) for s in sessions]
+
+
+@app.get("/api/sessions/{session_id}")
+async def get_public_session(session_id: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(GameSession).where(GameSession.id == session_id))
+    s = result.scalars().first()
+    if not s:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return _public_session(s, len(session_queues.get(s.id, set())))
+
 @app.get("/api/debug/start-game")
 async def debug_start_game():
     """Debug endpoint to start a test game (development only)"""
