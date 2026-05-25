@@ -13,7 +13,7 @@ from models import Base, User, Session as GameSession
 from auth_service import oauth_42
 from session import create_session_token, decode_session_token
 from websocket_manager import ws_manager
-from game_loop import start_game, active_games
+from game_loop import start_game, active_games, GAME_TYPE_TAUPE
 from admin_router import router as admin_router
 
 app = FastAPI(title="Taupe Typing Backend")
@@ -225,15 +225,14 @@ async def websocket_endpoint(websocket: WebSocket):
             data = await websocket.receive_json()
             msg_type = data.get("type")
 
-            if msg_type == "taupe_attempt":
+            if msg_type in ("taupe_attempt", "dot_click"):
                 payload = data.get("data") or {}
-                if isinstance(payload.get("key"), str):
+                if msg_type == "taupe_attempt" and isinstance(payload.get("key"), str):
                     payload["key"] = payload["key"].upper()
-                print(f"User {user_id} attempted round {payload.get('round_id')} with key {payload.get('key')}")
-                # Find the game this user is in and dispatch the attempt.
+                # Dispatch to whichever game has this user alive.
                 for game in active_games.values():
                     if user_id in game.alive_players:
-                        await game.process_attempt(user_id, payload)
+                        await game.handle_player_input(msg_type, user_id, payload)
                         break
 
             elif msg_type == "chat_message":
@@ -285,13 +284,16 @@ async def health():
 # --- Public session info (used by the player lobby + play page) ---
 
 def _public_session(s, queue_count: int) -> dict:
+    cfg = s.config_json or {}
     return {
         "id": s.id,
         "name": s.name,
         "status": s.status,
         "queue_count": queue_count,
+        "game_type": cfg.get("game_type", GAME_TYPE_TAUPE),
         "config_json": {
-            "keyboard_layout": (s.config_json or {}).get("keyboard_layout", "QWERTY"),
+            "game_type": cfg.get("game_type", GAME_TYPE_TAUPE),
+            "keyboard_layout": cfg.get("keyboard_layout", "QWERTY"),
         },
     }
 

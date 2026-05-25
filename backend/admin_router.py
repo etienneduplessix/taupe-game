@@ -8,7 +8,7 @@ from database import get_db
 from models import Session as GameSession, User, Round, Attempt, SessionScore
 from sqlalchemy import delete as sql_delete
 from config import settings
-from game_loop import active_games, start_game, DEFAULT_CONFIG
+from game_loop import active_games, start_game, DEFAULT_CONFIG, GAME_LOOPS, GAME_TYPE_TAUPE
 from auth_service import oauth_42
 from session import require_admin
 
@@ -27,10 +27,12 @@ class UpdateSessionBody(BaseModel):
 def serialize_session(s: GameSession) -> dict:
     # Local import to avoid circular import at module load
     from main import session_queues
+    cfg = s.config_json or {}
     return {
         "id": s.id,
         "name": s.name,
-        "config_json": s.config_json,
+        "config_json": cfg,
+        "game_type": cfg.get("game_type", GAME_TYPE_TAUPE),
         "status": s.status,
         "started_at": s.started_at.isoformat() if s.started_at else None,
         "ended_at": s.ended_at.isoformat() if s.ended_at else None,
@@ -49,9 +51,13 @@ async def list_sessions(db: AsyncSession = Depends(get_db)):
 
 @router.post("/sessions")
 async def create_session(body: CreateSessionBody, db: AsyncSession = Depends(get_db)):
+    config = dict(body.config) if body.config else dict(DEFAULT_CONFIG)
+    config.setdefault("game_type", GAME_TYPE_TAUPE)
+    if config["game_type"] not in GAME_LOOPS:
+        raise HTTPException(status_code=400, detail=f"Unknown game_type: {config['game_type']}")
     new_session = GameSession(
         name=body.name,
-        config_json=body.config or dict(DEFAULT_CONFIG),
+        config_json=config,
         status="waiting",
     )
     db.add(new_session)
@@ -76,7 +82,11 @@ async def update_session(session_id: str, body: UpdateSessionBody, db: AsyncSess
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    session.config_json = body.config
+    new_config = dict(body.config)
+    new_config.setdefault("game_type", GAME_TYPE_TAUPE)
+    if new_config["game_type"] not in GAME_LOOPS:
+        raise HTTPException(status_code=400, detail=f"Unknown game_type: {new_config['game_type']}")
+    session.config_json = new_config
     await db.commit()
     await db.refresh(session)
     return serialize_session(session)
@@ -122,11 +132,16 @@ async def start_session(session_id: str, db: AsyncSession = Depends(get_db)):
 
     # Consume the queue for this session as the starting roster
     queued = set(session_queues.pop(session_id, set()))
-    await start_game(session_id, db_factory, initial_players=queued)
+    await start_game(
+        session_id,
+        db_factory,
+        initial_players=queued,
+        config=session.config_json,
+    )
 
     # Load config from DB into the running game
     if session_id in active_games and session.config_json:
-        active_games[session_id].config = dict(session.config_json)
+        active_games[session_id].config = {**DEFAULT_CONFIG, **session.config_json}
 
     session.status = "running"
     session.initial_player_count = len(queued)

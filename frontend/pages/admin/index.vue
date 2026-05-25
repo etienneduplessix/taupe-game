@@ -52,7 +52,11 @@
             </span>
           </div>
 
-          <div class="flex flex-wrap gap-2 text-[10px] font-arcade text-purple-200/80">
+          <div class="font-arcade text-[9px] text-amber-300 uppercase tracking-widest">
+            {{ gameTypeLabel(session) }}
+          </div>
+
+          <div v-if="gameTypeOf(session) === 'taupe'" class="flex flex-wrap gap-2 text-[10px] font-arcade text-purple-200/80">
             <div class="chip-sm">
               <span>⚡</span>
               <span>{{ session.config_json?.base_spawn_interval_ms || '-' }}ms</span>
@@ -64,6 +68,20 @@
             <div class="chip-sm">
               <span>💔</span>
               <span>{{ session.config_json?.max_mistakes || '-' }} miss</span>
+            </div>
+          </div>
+          <div v-else-if="gameTypeOf(session) === 'dot_rush'" class="flex flex-wrap gap-2 text-[10px] font-arcade text-purple-200/80">
+            <div class="chip-sm">
+              <span>⏱️</span>
+              <span>{{ session.config_json?.initial_lifetime_ms || '-' }}ms</span>
+            </div>
+            <div class="chip-sm">
+              <span>🟡</span>
+              <span>{{ session.config_json?.initial_radius_pct || '-' }}%</span>
+            </div>
+            <div class="chip-sm">
+              <span>💔</span>
+              <span>{{ session.config_json?.max_misses || '-' }} miss</span>
             </div>
           </div>
 
@@ -117,6 +135,25 @@
                 autofocus
               />
             </div>
+            <div>
+              <label class="font-arcade text-[10px] text-amber-300 block mb-2">GAME TYPE</label>
+              <div class="flex gap-2">
+                <button
+                  type="button"
+                  @click="newSessionGameType = 'taupe'"
+                  :class="['btn-3d', 'flex-1', '!py-2', '!text-xs', newSessionGameType === 'taupe' ? 'btn-primary' : 'btn-ghost']"
+                >
+                  🐹 Taupe Typing
+                </button>
+                <button
+                  type="button"
+                  @click="newSessionGameType = 'dot_rush'"
+                  :class="['btn-3d', 'flex-1', '!py-2', '!text-xs', newSessionGameType === 'dot_rush' ? 'btn-primary' : 'btn-ghost']"
+                >
+                  🟡 Dot Rush
+                </button>
+              </div>
+            </div>
             <div class="flex justify-end gap-3 mt-2">
               <button type="button" @click="showCreateModal = false" class="btn-3d btn-secondary !py-2 !px-4">
                 Cancel
@@ -145,6 +182,27 @@ const sessions = ref([])
 const loading = ref(true)
 const showCreateModal = ref(false)
 const newSessionName = ref('')
+const newSessionGameType = ref('taupe')
+
+const DOT_RUSH_DEFAULTS = {
+  game_type: 'dot_rush',
+  max_misses: 3,
+  initial_lifetime_ms: 1500,
+  min_lifetime_ms: 400,
+  initial_radius_pct: 8,
+  min_radius_pct: 2.5,
+  inter_round_gap_ms: 600,
+  scaling_exponent: 1,
+  miss_penalty: -5,
+  countdown_seconds: 5,
+}
+
+function gameTypeOf(s) {
+  return s.game_type || s.config_json?.game_type || 'taupe'
+}
+function gameTypeLabel(s) {
+  return gameTypeOf(s) === 'dot_rush' ? '🟡 Dot Rush' : '🐹 Taupe Typing'
+}
 
 const fetchSessions = async () => {
   try {
@@ -160,13 +218,18 @@ const fetchSessions = async () => {
 const createSession = async () => {
   if (!newSessionName.value.trim()) return
   try {
+    const body = { name: newSessionName.value.trim() }
+    if (newSessionGameType.value === 'dot_rush') {
+      body.config = { ...DOT_RUSH_DEFAULTS }
+    }
     await $fetch(`${API}/admin/sessions`, {
       method: 'POST',
       credentials: 'include',
-      body: { name: newSessionName.value.trim() }
+      body,
     })
     showCreateModal.value = false
     newSessionName.value = ''
+    newSessionGameType.value = 'taupe'
     await fetchSessions()
   } catch (e) {
     alert('Error creating session: ' + (e.data?.detail || e.message))
