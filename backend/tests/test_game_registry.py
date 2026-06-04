@@ -29,10 +29,11 @@ os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 
 class GameRegistryTest(unittest.TestCase):
     def test_both_game_types_registered(self):
-        from game_loop import GAME_LOOPS, GAME_TYPE_TAUPE, GAME_TYPE_DOT_RUSH, BaseGameLoop
+        from game_loop import GAME_LOOPS, GAME_TYPE_TAUPE, GAME_TYPE_DOT_RUSH, GAME_TYPE_AMONG_US, BaseGameLoop
 
         self.assertIn(GAME_TYPE_TAUPE, GAME_LOOPS)
         self.assertIn(GAME_TYPE_DOT_RUSH, GAME_LOOPS)
+        self.assertIn(GAME_TYPE_AMONG_US, GAME_LOOPS)
 
         for game_type, cls in GAME_LOOPS.items():
             self.assertTrue(issubclass(cls, BaseGameLoop), f"{game_type} is not a BaseGameLoop subclass")
@@ -45,9 +46,11 @@ class GameRegistryTest(unittest.TestCase):
     def test_resolve_by_game_type(self):
         from game_loop import _resolve_game_class, TaupeGameLoop
         from games.dot_rush import DotRushGameLoop
+        from games.among_us import AmongUsGameLoop
 
         self.assertIs(_resolve_game_class({"game_type": "taupe"}), TaupeGameLoop)
         self.assertIs(_resolve_game_class({"game_type": "dot_rush"}), DotRushGameLoop)
+        self.assertIs(_resolve_game_class({"game_type": "among_us"}), AmongUsGameLoop)
         self.assertIs(_resolve_game_class({}), TaupeGameLoop)
         self.assertIs(_resolve_game_class(None), TaupeGameLoop)
         # Unknown types fall back to taupe (back-compat)

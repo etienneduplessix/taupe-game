@@ -116,6 +116,7 @@
 import Scene from '~/components/Scene.vue'
 import TaupeArena from '~/components/games/TaupeArena.vue'
 import DotRushArena from '~/components/games/DotRushArena.vue'
+import AmongUsArena from '~/components/games/AmongUsArena.vue'
 import { useAuthStore } from '~/stores/auth'
 
 const authStore = useAuthStore()
@@ -149,15 +150,20 @@ const socket = ref(null)
 
 const arenaComponent = computed(() => {
   if (gameType.value === 'dot_rush') return DotRushArena
+  if (gameType.value === 'among_us') return AmongUsArena
   return TaupeArena
 })
 
-const eliminatedFlavor = computed(() =>
-  gameType.value === 'dot_rush' ? 'You missed too many dots.' : 'The taupes got you.'
-)
-const victoryFlavor = computed(() =>
-  gameType.value === 'dot_rush' ? 'Sharpest clicker — that\'s you!' : 'Last taupe standing — that\'s you!'
-)
+const eliminatedFlavor = computed(() => {
+  if (gameType.value === 'dot_rush') return 'You missed too many dots.'
+  if (gameType.value === 'among_us') return 'You were eliminated from the game.'
+  return 'The taupes got you.'
+})
+const victoryFlavor = computed(() => {
+  if (gameType.value === 'dot_rush') return 'Sharpest clicker — that\'s you!'
+  if (gameType.value === 'among_us') return 'Your team emerged victorious!'
+  return 'Last taupe standing — that\'s you!'
+})
 
 function sendChat() {
   const text = chatInput.value.trim()

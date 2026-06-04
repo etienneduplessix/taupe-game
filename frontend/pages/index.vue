@@ -133,6 +133,7 @@ onMounted(async () => {
 function gameTypeLabel(s) {
   const gt = s.game_type || s.config_json?.game_type || 'taupe'
   if (gt === 'dot_rush') return '🟡 DOT RUSH'
+  if (gt === 'among_us') return '🕵️ AMONG US'
   return '🐹 TAUPE'
 }
 

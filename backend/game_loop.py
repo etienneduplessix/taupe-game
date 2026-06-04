@@ -14,6 +14,7 @@ from score_manager import ScoreManager
 
 GAME_TYPE_TAUPE = "taupe"
 GAME_TYPE_DOT_RUSH = "dot_rush"
+GAME_TYPE_AMONG_US = "among_us"
 
 DEFAULT_CONFIG = {
     "base_spawn_interval_ms": 1500,
@@ -370,6 +371,10 @@ async def start_game(
 ):
     """Instantiate the right GameLoop subclass for the session and start it."""
     cls = _resolve_game_class(config)
+    existing = active_games.get(session_id)
+    if existing and existing.is_running:
+        await existing.stop()
+
     if session_id not in active_games or not isinstance(active_games[session_id], cls):
         game = cls(session_id)
         if config:
@@ -379,6 +384,9 @@ async def start_game(
     await active_games[session_id].start(db_factory, initial_players=initial_players)
 
 
-# Import side-effect: register the Dot Rush game type
+# Import side-effect: register the Dot Rush and Among Us game types
 from games.dot_rush import DotRushGameLoop  # noqa: E402
+from games.among_us import AmongUsGameLoop  # noqa: E402
+
 register_game_loop(GAME_TYPE_DOT_RUSH, DotRushGameLoop)
+register_game_loop(GAME_TYPE_AMONG_US, AmongUsGameLoop)

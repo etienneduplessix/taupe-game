@@ -84,6 +84,20 @@
               <span>{{ session.config_json?.max_misses || '-' }} miss</span>
             </div>
           </div>
+          <div v-else-if="gameTypeOf(session) === 'among_us'" class="flex flex-wrap gap-2 text-[10px] font-arcade text-purple-200/80">
+            <div class="chip-sm">
+              <span>🕵️</span>
+              <span>{{ session.config_json?.impostor_count || 1 }} impostor(s)</span>
+            </div>
+            <div class="chip-sm">
+              <span>🔪</span>
+              <span>{{ session.config_json?.kill_cooldown_seconds || '-' }}s cooldown</span>
+            </div>
+            <div class="chip-sm">
+              <span>📋</span>
+              <span>{{ session.config_json?.tasks_per_crewmate || '-' }} tasks</span>
+            </div>
+          </div>
 
           <div class="flex flex-wrap gap-2 mt-2">
             <button
@@ -145,12 +159,19 @@
                 >
                   🐹 Taupe Typing
                 </button>
-                <button
+              <button
                   type="button"
                   @click="newSessionGameType = 'dot_rush'"
                   :class="['btn-3d', 'flex-1', '!py-2', '!text-xs', newSessionGameType === 'dot_rush' ? 'btn-primary' : 'btn-ghost']"
                 >
                   🟡 Dot Rush
+                </button>
+                <button
+                  type="button"
+                  @click="newSessionGameType = 'among_us'"
+                  :class="['btn-3d', 'flex-1', '!py-2', '!text-xs', newSessionGameType === 'among_us' ? 'btn-primary' : 'btn-ghost']"
+                >
+                  🕵️ Among Us
                 </button>
               </div>
             </div>
@@ -197,11 +218,26 @@ const DOT_RUSH_DEFAULTS = {
   countdown_seconds: 5,
 }
 
+const AMONG_US_DEFAULTS = {
+  game_type: 'among_us',
+  impostor_count: 1,
+  kill_cooldown_seconds: 25,
+  kill_range: 1.5,
+  report_range: 1.0,
+  discussion_duration_seconds: 30,
+  voting_duration_seconds: 15,
+  tasks_per_crewmate: 4,
+  countdown_seconds: 5,
+}
+
 function gameTypeOf(s) {
   return s.game_type || s.config_json?.game_type || 'taupe'
 }
 function gameTypeLabel(s) {
-  return gameTypeOf(s) === 'dot_rush' ? '🟡 Dot Rush' : '🐹 Taupe Typing'
+  const gt = gameTypeOf(s)
+  if (gt === 'dot_rush') return '🟡 Dot Rush'
+  if (gt === 'among_us') return '🕵️ Among Us'
+  return '🐹 Taupe Typing'
 }
 
 const fetchSessions = async () => {
@@ -221,6 +257,8 @@ const createSession = async () => {
     const body = { name: newSessionName.value.trim() }
     if (newSessionGameType.value === 'dot_rush') {
       body.config = { ...DOT_RUSH_DEFAULTS }
+    } else if (newSessionGameType.value === 'among_us') {
+      body.config = { ...AMONG_US_DEFAULTS }
     }
     await $fetch(`${API}/admin/sessions`, {
       method: 'POST',

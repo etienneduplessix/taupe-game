@@ -13,7 +13,7 @@ from models import Base, User, Session as GameSession
 from auth_service import oauth_42
 from session import create_session_token, decode_session_token
 from websocket_manager import ws_manager
-from game_loop import start_game, active_games, GAME_TYPE_TAUPE
+from game_loop import start_game, active_games, GAME_TYPE_TAUPE, DEFAULT_CONFIG
 from admin_router import router as admin_router
 
 app = FastAPI(title="Taupe Typing Backend")
@@ -164,6 +164,47 @@ async def get_me(request: Request, db: AsyncSession = Depends(get_db)):
         } if user.coalition_id else None,
     }
 
+# --- Debug Test Login (dev only, no 42 OAuth) ---
+
+@app.post("/api/auth/debug/login")
+async def debug_login(
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    body = await request.json()
+    display_name = (body.get("display_name") or "").strip()
+    if not display_name:
+        raise HTTPException(status_code=400, detail="display_name required")
+
+    import uuid as _uuid
+    slug = display_name.lower().replace(" ", "-")
+    fake_login = f"debug-{slug}-{str(_uuid.uuid4())[:6]}"
+
+    user = User(
+        ft_login=fake_login,
+        display_name=display_name,
+        is_admin=False,
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+
+    token_str = create_session_token(user.id)
+    response.set_cookie(
+        key="session",
+        value=token_str,
+        httponly=True,
+        samesite="lax",
+    )
+    return {
+        "id": user.id,
+        "login": user.ft_login,
+        "display_name": user.display_name,
+        "is_admin": user.is_admin,
+    }
+
+
 # --- Game Infrastructure ---
 
 @app.websocket("/ws")
@@ -200,6 +241,8 @@ async def websocket_endpoint(websocket: WebSocket):
     if session_id:
         running_game = active_games.get(session_id)
         if running_game and running_game.is_running:
+            if hasattr(running_game, "set_player_display_name"):
+                running_game.set_player_display_name(user_id, display_name)
             await running_game.add_player(user_id)
             joined_running_game = True
         else:
@@ -217,6 +260,8 @@ async def websocket_endpoint(websocket: WebSocket):
     if not joined_running_game:
         for game in active_games.values():
             if game.is_running:
+                if hasattr(game, "set_player_display_name"):
+                    game.set_player_display_name(user_id, display_name)
                 await game.add_player(user_id)
                 break
 
@@ -225,7 +270,7 @@ async def websocket_endpoint(websocket: WebSocket):
             data = await websocket.receive_json()
             msg_type = data.get("type")
 
-            if msg_type in ("taupe_attempt", "dot_click"):
+            if msg_type in ("taupe_attempt", "dot_click", "among_us_move", "among_us_kill", "among_us_report", "among_us_vote", "among_us_task_start", "among_us_task_step", "among_us_sabotage"):
                 payload = data.get("data") or {}
                 if msg_type == "taupe_attempt" and isinstance(payload.get("key"), str):
                     payload["key"] = payload["key"].upper()
@@ -354,3 +399,34 @@ async def debug_get_session(response: Response, db: AsyncSession = Depends(get_d
         samesite="lax",
     )
     return {"status": "session created", "user_id": user.id, "is_admin": True}
+
+@app.post("/api/debug/start-session/{session_id}")
+async def debug_start_session(session_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Debug: queue given player IDs then start the game (dev only)"""
+    body = await request.json()
+    player_ids = body.get("player_ids", [])
+
+    from database import async_session as _as
+    def db_factory():
+        return _as()
+
+    for pid in player_ids:
+        session_queues.setdefault(session_id, set()).add(pid)
+
+    result = await db.execute(select(GameSession).where(GameSession.id == session_id))
+    session = result.scalars().first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    queued = set(session_queues.pop(session_id, set()))
+    await start_game(session_id, db_factory, initial_players=queued, config=session.config_json)
+
+    if session_id in active_games and session.config_json:
+        active_games[session_id].config = {**DEFAULT_CONFIG, **session.config_json}
+
+    session.status = "running"
+    session.initial_player_count = len(queued)
+    await db.commit()
+    await broadcast_queue_update(session_id)
+
+    return {"status": "started", "players": len(queued), "player_ids": list(queued)}

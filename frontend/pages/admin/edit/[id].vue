@@ -110,6 +110,21 @@
             </p>
           </template>
 
+          <template v-else-if="config.game_type === 'among_us'">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Field label="Impostor count" v-model.number="config.impostor_count" />
+              <Field label="Kill cooldown (s)" v-model.number="config.kill_cooldown_seconds" />
+              <Field label="Kill range (tiles)" v-model.number="config.kill_range" step="0.5" />
+              <Field label="Report range (tiles)" v-model.number="config.report_range" step="0.5" />
+              <Field label="Discussion duration (s)" v-model.number="config.discussion_duration_seconds" />
+              <Field label="Voting duration (s)" v-model.number="config.voting_duration_seconds" />
+              <Field label="Tasks per crewmate" v-model.number="config.tasks_per_crewmate" />
+            </div>
+            <p class="font-arcade text-[8px] text-amber-300/70 mt-3">
+              Among Us: 4-10 players. Impostors kill crewmates. Complete tasks or vote out impostors to win.
+            </p>
+          </template>
+
           <Field label="Pre-game countdown (s)" v-model.number="config.countdown_seconds" class="mt-5" />
         </div>
 
@@ -140,6 +155,7 @@ const route = useRoute()
 const GAME_TYPES = [
   { value: 'taupe', label: 'Taupe Typing', emoji: '🐹' },
   { value: 'dot_rush', label: 'Dot Rush', emoji: '🟡' },
+  { value: 'among_us', label: 'Among Us', emoji: '🕵️' },
 ]
 
 const DOT_RUSH_DEFAULTS = {
@@ -155,15 +171,33 @@ const DOT_RUSH_DEFAULTS = {
   countdown_seconds: 5,
 }
 
+const AMONG_US_DEFAULTS = {
+  game_type: 'among_us',
+  impostor_count: 1,
+  kill_cooldown_seconds: 25,
+  kill_range: 1.5,
+  report_range: 1.0,
+  discussion_duration_seconds: 30,
+  voting_duration_seconds: 15,
+  tasks_per_crewmate: 4,
+  countdown_seconds: 5,
+}
+
 const session = ref(null)
 const config = ref({})
 const loading = ref(true)
 const saved = ref(false)
 
-// When switching to dot_rush, seed missing defaults so the form has values.
+// When switching to dot_rush or among_us, seed missing defaults so the form has values.
 watch(() => config.value.game_type, (gt) => {
   if (gt === 'dot_rush') {
     for (const [k, v] of Object.entries(DOT_RUSH_DEFAULTS)) {
+      if (config.value[k] === undefined || config.value[k] === null) {
+        config.value[k] = v
+      }
+    }
+  } else if (gt === 'among_us') {
+    for (const [k, v] of Object.entries(AMONG_US_DEFAULTS)) {
       if (config.value[k] === undefined || config.value[k] === null) {
         config.value[k] = v
       }
