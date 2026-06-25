@@ -1,19 +1,20 @@
 import asyncio
-import json
 import random
 import uuid
+from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Optional, Dict, Set
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import update
 
-from config import settings
-from database import get_db
-from models import Session, Round, User, Attempt
+from models import Session, Round, Attempt
 from websocket_manager import ws_manager
 from score_manager import ScoreManager
+
+GAME_TYPE_TAUPE = "taupe"
+GAME_TYPE_DOT_RUSH = "dot_rush"
+GAME_TYPE_AMONG_US = "among_us"
 
 DEFAULT_CONFIG = {
     "base_spawn_interval_ms": 1500,
@@ -28,7 +29,8 @@ DEFAULT_CONFIG = {
     "max_avg_latency_ms": 800,
     "timeouts_count_as_mistakes": True,
     "keyboard_layout": "QWERTY",
-    "countdown_seconds": 5
+    "countdown_seconds": 5,
+    "game_type": GAME_TYPE_TAUPE,
 }
 
 # Keys actually rendered by each frontend layout. Spawn pool is intersected
@@ -39,7 +41,16 @@ LAYOUT_KEYS = {
     "NUMPAD": set("ABCDEFGHIJ"),
 }
 
-class GameLoop:
+
+class BaseGameLoop(ABC):
+    """Shared lifecycle scaffolding: alive set, countdown, score manager hookup.
+
+    Subclasses implement `_run_rounds` for game-specific round scheduling and
+    `handle_player_input` for inbound message routing.
+    """
+
+    game_type: str = "base"
+
     def __init__(self, session_id: str):
         self.session_id = session_id
         self.is_running = False
@@ -49,54 +60,39 @@ class GameLoop:
         self.config: dict = dict(DEFAULT_CONFIG)
         self.task: Optional[asyncio.Task] = None
         self.score_manager: Optional[ScoreManager] = None
-        # Current round state (set inside _run_loop)
-        self.current_round_id: Optional[str] = None
-        self.current_target_key: Optional[str] = None
-        self.current_spawn_ts: Optional[datetime] = None
-        self.current_timeout_ms: int = 0
-        self.round_attempts: Set[str] = set()
 
     async def load_config(self, db: AsyncSession):
         result = await db.execute(select(Session).where(Session.id == self.session_id))
         session = result.scalars().first()
-        if session:
-            self.config = session.config_json
+        if session and session.config_json:
+            self.config = {**DEFAULT_CONFIG, **session.config_json}
         else:
             self.config = dict(DEFAULT_CONFIG)
 
     async def start(self, db_factory, initial_players: Optional[Set[str]] = None):
         self.is_running = True
-        # Seed alive players from the queue if provided, else from current connections
         if initial_players is not None:
             self.alive_players = set(initial_players)
         else:
             self.alive_players = set(ws_manager.active_connections.keys())
 
-        # Initialize score manager (players who join later are added on the fly)
         self.score_manager = ScoreManager(self.session_id, self.alive_players, self.config)
-
-        # Announce initial alive count
         await self._broadcast_alive_count()
-
         self.task = asyncio.create_task(self._run_loop(db_factory))
 
     async def add_player(self, user_id: str):
-        """Register a player who joined after the game started."""
         if not self.is_running or user_id in self.alive_players:
             return
         if self.score_manager and self.score_manager.scores.get(user_id, {}).get("eliminated"):
-            # Don't re-admit eliminated players
             return
         self.alive_players.add(user_id)
         if self.score_manager:
             self.score_manager.add_player(user_id)
-        # If the loop was paused waiting for players, bump initial_player_count so scaling math works
         if self.initial_player_count == 0:
             self.initial_player_count = len(self.alive_players)
         await self._broadcast_alive_count()
 
     async def remove_player(self, user_id: str):
-        """Handle disconnect: drop from alive set and notify peers."""
         if user_id not in self.alive_players:
             return
         self.alive_players.discard(user_id)
@@ -112,169 +108,40 @@ class GameLoop:
     async def _broadcast_alive_count(self):
         await ws_manager.broadcast({
             "type": "alive_count",
-            "data": {
-                "session_id": self.session_id,
-                "count": len(self.alive_players),
-            }
+            "data": {"session_id": self.session_id, "count": len(self.alive_players)},
         })
 
-    async def _run_loop(self, db_factory):
-        # Store initial count for scaling
-        self.initial_player_count = len(self.alive_players)
-        print(f"🎮 Game loop starting, initial players: {self.initial_player_count}")
-
-        # Pre-game countdown so queued players have a moment to focus
-        if self.initial_player_count > 0:
-            try:
-                countdown = int(self.config.get("countdown_seconds", 5) or 0)
-            except (TypeError, ValueError):
-                countdown = 5
-            for n in range(countdown, 0, -1):
-                if not self.is_running:
-                    break
-                await ws_manager.broadcast({
-                    "type": "countdown",
-                    "data": {"session_id": self.session_id, "seconds": n}
-                })
-                await asyncio.sleep(1.0)
-            if self.is_running:
-                await ws_manager.broadcast({
-                    "type": "countdown",
-                    "data": {"session_id": self.session_id, "seconds": 0}
-                })
-
-        try:
-            while self.is_running:
-                # Wait until at least one player is connected before spawning taupes
-                if not self.alive_players:
-                    await asyncio.sleep(0.5)
-                    continue
-
-                if len(self.alive_players) <= 1 and self.initial_player_count > 1:
-                    print("🏁 Game over — only one player alive")
-                    await ws_manager.broadcast({
-                        "type": "game_over",
-                        "data": {
-                            "session_id": self.session_id,
-                            "winner_id": next(iter(self.alive_players)) if self.alive_players else None,
-                        }
-                    })
-                    self.is_running = False
-                    break
-
-                self.current_round += 1
-                print(f"🔁 Round {self.current_round} starting")
-
-                # 1. Calculate dynamic scaling
-                alive_count = len(self.alive_players)
-                factor = alive_count / self.initial_player_count if self.initial_player_count > 0 else 1.0
-                k = self.config.get("scaling_exponent", 1)
-                scaling_val = factor ** k
-
-                base_spawn = self.config.get("base_spawn_interval_ms", 1500)
-                min_spawn = self.config.get("min_spawn_interval_ms", 300)
-                interval_ms = int(min_spawn + (base_spawn - min_spawn) * scaling_val)
-
-                base_timeout = self.config.get("base_timeout_ms", 1200)
-                min_timeout = self.config.get("min_timeout_ms", 250)
-                timeout_ms = int(min_timeout + (base_timeout - min_timeout) * scaling_val)
-
-                # 2. Pick a target key (intersected with the active layout's keyset)
-                raw_keys = self.config.get("allowed_keys", DEFAULT_CONFIG["allowed_keys"])
-                if not isinstance(raw_keys, str):
-                    raw_keys = str(raw_keys or "")
-                layout = self.config.get("keyboard_layout", "QWERTY")
-                layout_keys = LAYOUT_KEYS.get(layout, LAYOUT_KEYS["QWERTY"])
-                keys = [k for k in raw_keys.upper() if k.isalnum() and k in layout_keys]
-                if not keys:
-                    keys = sorted(layout_keys)
-                target_key = random.choice(keys)
-                print(f"🎯 Picked key: {target_key} (layout={layout})")
-
-                # 3. Record round in DB (optional - skip if fails)
-                spawn_ts = datetime.utcnow()
-                round_id = str(uuid.uuid4())
-
-                # Stash current-round state for process_attempt / timeout resolver
-                self.current_round_id = round_id
-                self.current_target_key = target_key
-                self.current_spawn_ts = spawn_ts
-                self.current_timeout_ms = timeout_ms
-                self.round_attempts = set()
-
-                try:
-                    async with db_factory() as db:
-                        new_round = Round(
-                            id=round_id,
-                            session_id=self.session_id,
-                            round_number=self.current_round,
-                            target_key=target_key,
-                            spawn_ts=spawn_ts,
-                            timeout_ms=timeout_ms,
-                            interval_ms=interval_ms
-                        )
-                        db.add(new_round)
-                        await db.commit()
-                except Exception as e:
-                    print(f"⚠️  DB error (non-fatal): {e}")
-
-                # 4. Broadcast taupe spawn
-                await ws_manager.broadcast({
-                    "type": "taupe_spawn",
-                    "data": {
-                        "session_id": self.session_id,
-                        "round_id": round_id,
-                        "key": target_key,
-                        "timeout_ms": timeout_ms
-                    }
-                })
-
-                # 5. Wait the response window, then resolve timeouts
-                await asyncio.sleep(timeout_ms / 1000.0)
-                await self._resolve_round_timeouts()
-
-                # 6. Flush attempts to DB every round
-                if self.score_manager:
-                    try:
-                        async with db_factory() as db:
-                            await self.score_manager.flush_attempts(db)
-                    except Exception as e:
-                        print(f"⚠️  Flush error (non-fatal): {e}")
-
-                # 7. Inter-round gap so total cycle stays ~interval_ms
-                remaining = max(0.0, (interval_ms - timeout_ms) / 1000.0)
-                if remaining > 0:
-                    await asyncio.sleep(remaining)
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            print(f"❌ Game loop crashed: {e}")
-            import traceback
-            traceback.print_exc()
-
-    async def _resolve_round_timeouts(self):
-        """For each alive player who didn't attempt this round, record a timeout."""
-        if not self.score_manager or not self.current_round_id:
+    async def _broadcast_countdown(self):
+        if self.initial_player_count <= 0:
             return
-        for user_id in list(self.alive_players):
-            if user_id in self.round_attempts:
-                continue
-            self.score_manager.update_score(
-                user_id,
-                self.current_round_id,
-                self.current_timeout_ms,
-                "timeout",
-                self.current_round,
-            )
-            # Persist the synthetic timeout attempt
-            self.score_manager.add_attempt(Attempt(
-                round_id=self.current_round_id,
-                user_id=user_id,
-                pressed_key=None,
-                latency_ms=self.current_timeout_ms,
-                outcome="timeout",
-            ))
-            await self._maybe_eliminate(user_id)
+        try:
+            countdown = int(self.config.get("countdown_seconds", 5) or 0)
+        except (TypeError, ValueError):
+            countdown = 5
+        for n in range(countdown, 0, -1):
+            if not self.is_running:
+                return
+            await ws_manager.broadcast({
+                "type": "countdown",
+                "data": {"session_id": self.session_id, "seconds": n},
+            })
+            await asyncio.sleep(1.0)
+        if self.is_running:
+            await ws_manager.broadcast({
+                "type": "countdown",
+                "data": {"session_id": self.session_id, "seconds": 0},
+            })
+
+    async def _check_game_over(self) -> bool:
+        if len(self.alive_players) <= 1 and self.initial_player_count > 1:
+            winner = next(iter(self.alive_players)) if self.alive_players else None
+            await ws_manager.broadcast({
+                "type": "game_over",
+                "data": {"session_id": self.session_id, "winner_id": winner},
+            })
+            self.is_running = False
+            return True
+        return False
 
     async def _maybe_eliminate(self, user_id: str):
         if not self.score_manager:
@@ -290,29 +157,176 @@ class GameLoop:
                 "session_id": self.session_id,
                 "reason": reason,
                 "round": self.current_round,
-            }
+            },
         }, user_id)
         await self._broadcast_alive_count()
 
-    async def process_attempt(self, user_id: str, attempt_data: dict):
+    async def _run_loop(self, db_factory):
+        self.initial_player_count = len(self.alive_players)
+        print(f"🎮 [{self.game_type}] Game loop starting, initial players: {self.initial_player_count}")
+        await self._broadcast_countdown()
+        try:
+            await self._run_rounds(db_factory)
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            print(f"❌ [{self.game_type}] Game loop crashed: {e}")
+            import traceback
+            traceback.print_exc()
+
+    @abstractmethod
+    async def _run_rounds(self, db_factory):
+        """Subclass-specific round scheduling loop."""
+
+    @abstractmethod
+    async def handle_player_input(self, msg_type: str, user_id: str, payload: dict):
+        """Dispatch an inbound websocket message to the game."""
+
+
+class TaupeGameLoop(BaseGameLoop):
+    game_type = GAME_TYPE_TAUPE
+
+    def __init__(self, session_id: str):
+        super().__init__(session_id)
+        # Current round state (set inside _run_rounds)
+        self.current_round_id: Optional[str] = None
+        self.current_target_key: Optional[str] = None
+        self.current_spawn_ts: Optional[datetime] = None
+        self.current_timeout_ms: int = 0
+        self.round_attempts: Set[str] = set()
+
+    async def _run_rounds(self, db_factory):
+        while self.is_running:
+            if not self.alive_players:
+                await asyncio.sleep(0.5)
+                continue
+
+            if await self._check_game_over():
+                break
+
+            self.current_round += 1
+            print(f"🔁 Round {self.current_round} starting")
+
+            # 1. Dynamic scaling
+            alive_count = len(self.alive_players)
+            factor = alive_count / self.initial_player_count if self.initial_player_count > 0 else 1.0
+            k = self.config.get("scaling_exponent", 1)
+            scaling_val = factor ** k
+
+            base_spawn = self.config.get("base_spawn_interval_ms", 1500)
+            min_spawn = self.config.get("min_spawn_interval_ms", 300)
+            interval_ms = int(min_spawn + (base_spawn - min_spawn) * scaling_val)
+
+            base_timeout = self.config.get("base_timeout_ms", 1200)
+            min_timeout = self.config.get("min_timeout_ms", 250)
+            timeout_ms = int(min_timeout + (base_timeout - min_timeout) * scaling_val)
+
+            # 2. Pick a target key
+            raw_keys = self.config.get("allowed_keys", DEFAULT_CONFIG["allowed_keys"])
+            if not isinstance(raw_keys, str):
+                raw_keys = str(raw_keys or "")
+            layout = self.config.get("keyboard_layout", "QWERTY")
+            layout_keys = LAYOUT_KEYS.get(layout, LAYOUT_KEYS["QWERTY"])
+            keys = [k for k in raw_keys.upper() if k.isalnum() and k in layout_keys]
+            if not keys:
+                keys = sorted(layout_keys)
+            target_key = random.choice(keys)
+            print(f"🎯 Picked key: {target_key} (layout={layout})")
+
+            # 3. Record round
+            spawn_ts = datetime.utcnow()
+            round_id = str(uuid.uuid4())
+            self.current_round_id = round_id
+            self.current_target_key = target_key
+            self.current_spawn_ts = spawn_ts
+            self.current_timeout_ms = timeout_ms
+            self.round_attempts = set()
+
+            try:
+                async with db_factory() as db:
+                    new_round = Round(
+                        id=round_id,
+                        session_id=self.session_id,
+                        round_number=self.current_round,
+                        target_key=target_key,
+                        spawn_ts=spawn_ts,
+                        timeout_ms=timeout_ms,
+                        interval_ms=interval_ms,
+                    )
+                    db.add(new_round)
+                    await db.commit()
+            except Exception as e:
+                print(f"⚠️  DB error (non-fatal): {e}")
+
+            # 4. Broadcast spawn
+            await ws_manager.broadcast({
+                "type": "taupe_spawn",
+                "data": {
+                    "session_id": self.session_id,
+                    "round_id": round_id,
+                    "key": target_key,
+                    "timeout_ms": timeout_ms,
+                },
+            })
+
+            # 5. Resolve timeouts
+            await asyncio.sleep(timeout_ms / 1000.0)
+            await self._resolve_round_timeouts()
+
+            # 6. Flush attempts
+            if self.score_manager:
+                try:
+                    async with db_factory() as db:
+                        await self.score_manager.flush_attempts(db)
+                except Exception as e:
+                    print(f"⚠️  Flush error (non-fatal): {e}")
+
+            # 7. Inter-round gap
+            remaining = max(0.0, (interval_ms - timeout_ms) / 1000.0)
+            if remaining > 0:
+                await asyncio.sleep(remaining)
+
+    async def _resolve_round_timeouts(self):
+        if not self.score_manager or not self.current_round_id:
+            return
+        for user_id in list(self.alive_players):
+            if user_id in self.round_attempts:
+                continue
+            self.score_manager.update_score(
+                user_id,
+                self.current_round_id,
+                self.current_timeout_ms,
+                "timeout",
+                self.current_round,
+            )
+            self.score_manager.add_attempt(Attempt(
+                round_id=self.current_round_id,
+                user_id=user_id,
+                pressed_key=None,
+                latency_ms=self.current_timeout_ms,
+                outcome="timeout",
+            ))
+            await self._maybe_eliminate(user_id)
+
+    async def handle_player_input(self, msg_type: str, user_id: str, payload: dict):
+        if msg_type != "taupe_attempt":
+            return
         if not self.is_running or user_id not in self.alive_players or not self.score_manager:
             return
         if not self.current_round_id:
             return
 
-        round_id = attempt_data.get("round_id")
+        round_id = payload.get("round_id")
         if round_id != self.current_round_id:
-            return  # stale or unknown round
+            return
         if user_id in self.round_attempts:
-            return  # one shot per round
+            return
 
-        pressed_key = (attempt_data.get("key") or "").upper()
+        pressed_key = (payload.get("key") or "").upper()
         latency_ms = max(0, int((datetime.utcnow() - self.current_spawn_ts).total_seconds() * 1000)) if self.current_spawn_ts else 0
         outcome = "hit" if pressed_key == self.current_target_key else "miss"
 
         self.round_attempts.add(user_id)
-
-        # Persist the attempt for later flush
         self.score_manager.add_attempt(Attempt(
             round_id=round_id,
             user_id=user_id,
@@ -320,16 +334,59 @@ class GameLoop:
             latency_ms=latency_ms,
             outcome=outcome,
         ))
-
         self.score_manager.update_score(user_id, round_id, latency_ms, outcome, self.current_round)
         await self._maybe_eliminate(user_id)
 
-# Global registry to manage active game loops
-active_games: Dict[str, GameLoop] = {}
+    # Back-compat alias used by older code paths
+    async def process_attempt(self, user_id: str, attempt_data: dict):
+        await self.handle_player_input("taupe_attempt", user_id, attempt_data)
 
-async def start_game(session_id: str, db_factory, initial_players: Optional[Set[str]] = None):
-    if session_id not in active_games:
-        game = GameLoop(session_id)
+
+# Back-compat alias so older imports (`from game_loop import GameLoop`) keep working
+GameLoop = TaupeGameLoop
+
+
+# Game-type registry. Subclasses register themselves here at import time.
+GAME_LOOPS: Dict[str, type] = {GAME_TYPE_TAUPE: TaupeGameLoop}
+
+
+def register_game_loop(game_type: str, cls: type):
+    GAME_LOOPS[game_type] = cls
+
+
+def _resolve_game_class(config: Optional[dict]) -> type:
+    game_type = (config or {}).get("game_type") or GAME_TYPE_TAUPE
+    return GAME_LOOPS.get(game_type, TaupeGameLoop)
+
+
+# Global registry of running games keyed by session_id
+active_games: Dict[str, BaseGameLoop] = {}
+
+
+async def start_game(
+    session_id: str,
+    db_factory,
+    initial_players: Optional[Set[str]] = None,
+    config: Optional[dict] = None,
+):
+    """Instantiate the right GameLoop subclass for the session and start it."""
+    cls = _resolve_game_class(config)
+    existing = active_games.get(session_id)
+    if existing and existing.is_running:
+        await existing.stop()
+
+    if session_id not in active_games or not isinstance(active_games[session_id], cls):
+        game = cls(session_id)
+        if config:
+            game.config = {**DEFAULT_CONFIG, **config}
         active_games[session_id] = game
 
     await active_games[session_id].start(db_factory, initial_players=initial_players)
+
+
+# Import side-effect: register the Dot Rush and Among Us game types
+from games.dot_rush import DotRushGameLoop  # noqa: E402
+from games.among_us import AmongUsGameLoop  # noqa: E402
+
+register_game_loop(GAME_TYPE_DOT_RUSH, DotRushGameLoop)
+register_game_loop(GAME_TYPE_AMONG_US, AmongUsGameLoop)

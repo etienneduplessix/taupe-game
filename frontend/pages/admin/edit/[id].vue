@@ -32,51 +32,100 @@
         </div>
 
         <div class="border-t border-amber-400/20 pt-5">
+          <div class="font-arcade text-[10px] text-amber-300 mb-2">GAME TYPE</div>
+          <div class="flex gap-2 mb-5">
+            <button
+              v-for="opt in GAME_TYPES"
+              :key="opt.value"
+              type="button"
+              @click="config.game_type = opt.value"
+              :class="['btn-3d', 'flex-1', '!py-3', '!text-xs', (config.game_type || 'taupe') === opt.value ? 'btn-primary' : 'btn-ghost']"
+            >
+              <span class="text-base mr-2">{{ opt.emoji }}</span>
+              {{ opt.label }}
+            </button>
+          </div>
+
           <h2 class="font-display text-lg text-amber-100 mb-4">⚙️ Game Parameters</h2>
 
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Field label="Base spawn interval (ms)" v-model.number="config.base_spawn_interval_ms" />
-            <Field label="Min spawn interval (ms)" v-model.number="config.min_spawn_interval_ms" />
-            <Field label="Base timeout (ms)" v-model.number="config.base_timeout_ms" />
-            <Field label="Min timeout (ms)" v-model.number="config.min_timeout_ms" />
-            <Field label="Scaling exponent" v-model.number="config.scaling_exponent" step="0.1" />
-            <Field label="Miss penalty" v-model.number="config.miss_penalty" />
-            <Field label="Max mistakes" v-model.number="config.max_mistakes" />
-            <Field label="Speed window size" v-model.number="config.speed_window_size" />
-            <Field label="Max avg latency (ms)" v-model.number="config.max_avg_latency_ms" />
-          </div>
-
-          <div class="mt-4">
-            <div class="font-arcade text-[10px] text-amber-300 mb-2">ALLOWED KEYS</div>
-            <input
-              v-model="config.allowed_keys"
-              type="text"
-              class="w-full p-3 bg-[#1a0f08] text-amber-100 border-2 border-amber-400/60 rounded-lg font-mono focus:border-amber-400 focus:outline-none uppercase tracking-widest"
-            />
-          </div>
-
-          <div class="mt-4">
-            <div class="font-arcade text-[10px] text-amber-300 mb-2">KEYBOARD LAYOUT</div>
-            <div class="flex gap-2">
-              <button
-                v-for="opt in ['QWERTY', 'AZERTY', 'NUMPAD']"
-                :key="opt"
-                type="button"
-                @click="config.keyboard_layout = opt"
-                :class="['btn-3d', 'flex-1', '!py-2', '!text-xs', (config.keyboard_layout || 'QWERTY') === opt ? 'btn-primary' : 'btn-ghost']"
-              >
-                {{ opt }}
-              </button>
+          <template v-if="(config.game_type || 'taupe') === 'taupe'">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Field label="Base spawn interval (ms)" v-model.number="config.base_spawn_interval_ms" />
+              <Field label="Min spawn interval (ms)" v-model.number="config.min_spawn_interval_ms" />
+              <Field label="Base timeout (ms)" v-model.number="config.base_timeout_ms" />
+              <Field label="Min timeout (ms)" v-model.number="config.min_timeout_ms" />
+              <Field label="Scaling exponent" v-model.number="config.scaling_exponent" step="0.1" />
+              <Field label="Miss penalty" v-model.number="config.miss_penalty" />
+              <Field label="Max mistakes" v-model.number="config.max_mistakes" />
+              <Field label="Speed window size" v-model.number="config.speed_window_size" />
+              <Field label="Max avg latency (ms)" v-model.number="config.max_avg_latency_ms" />
             </div>
-            <div v-if="config.keyboard_layout === 'NUMPAD'" class="font-arcade text-[8px] text-amber-300/70 mt-2">
-              Numpad maps digits 7-9/4-6/1-3/0 → A-J. Restrict ALLOWED KEYS to ABCDEFGHIJ to match.
-            </div>
-          </div>
 
-          <label class="flex items-center gap-3 mt-4 cursor-pointer">
-            <input v-model="config.timeouts_count_as_mistakes" type="checkbox" class="w-5 h-5 accent-amber-400" />
-            <span class="font-display text-amber-100">Timeouts count as mistakes</span>
-          </label>
+            <div class="mt-4">
+              <div class="font-arcade text-[10px] text-amber-300 mb-2">ALLOWED KEYS</div>
+              <input
+                v-model="config.allowed_keys"
+                type="text"
+                class="w-full p-3 bg-[#1a0f08] text-amber-100 border-2 border-amber-400/60 rounded-lg font-mono focus:border-amber-400 focus:outline-none uppercase tracking-widest"
+              />
+            </div>
+
+            <div class="mt-4">
+              <div class="font-arcade text-[10px] text-amber-300 mb-2">KEYBOARD LAYOUT</div>
+              <div class="flex gap-2">
+                <button
+                  v-for="opt in ['QWERTY', 'AZERTY', 'NUMPAD']"
+                  :key="opt"
+                  type="button"
+                  @click="config.keyboard_layout = opt"
+                  :class="['btn-3d', 'flex-1', '!py-2', '!text-xs', (config.keyboard_layout || 'QWERTY') === opt ? 'btn-primary' : 'btn-ghost']"
+                >
+                  {{ opt }}
+                </button>
+              </div>
+              <div v-if="config.keyboard_layout === 'NUMPAD'" class="font-arcade text-[8px] text-amber-300/70 mt-2">
+                Numpad maps digits 7-9/4-6/1-3/0 → A-J. Restrict ALLOWED KEYS to ABCDEFGHIJ to match.
+              </div>
+            </div>
+
+            <label class="flex items-center gap-3 mt-4 cursor-pointer">
+              <input v-model="config.timeouts_count_as_mistakes" type="checkbox" class="w-5 h-5 accent-amber-400" />
+              <span class="font-display text-amber-100">Timeouts count as mistakes</span>
+            </label>
+          </template>
+
+          <template v-else-if="config.game_type === 'dot_rush'">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Field label="Max misses" v-model.number="config.max_misses" />
+              <Field label="Initial lifetime (ms)" v-model.number="config.initial_lifetime_ms" />
+              <Field label="Min lifetime (ms)" v-model.number="config.min_lifetime_ms" />
+              <Field label="Initial radius (%)" v-model.number="config.initial_radius_pct" step="0.5" />
+              <Field label="Min radius (%)" v-model.number="config.min_radius_pct" step="0.5" />
+              <Field label="Inter-round gap (ms)" v-model.number="config.inter_round_gap_ms" />
+              <Field label="Scaling exponent" v-model.number="config.scaling_exponent" step="0.1" />
+              <Field label="Miss penalty" v-model.number="config.miss_penalty" />
+            </div>
+            <p class="font-arcade text-[8px] text-amber-300/70 mt-3">
+              Dot Rush: click the dot before it expires. Wrong clicks count as misses.
+            </p>
+          </template>
+
+          <template v-else-if="config.game_type === 'among_us'">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Field label="Impostor count" v-model.number="config.impostor_count" />
+              <Field label="Kill cooldown (s)" v-model.number="config.kill_cooldown_seconds" />
+              <Field label="Kill range (tiles)" v-model.number="config.kill_range" step="0.5" />
+              <Field label="Report range (tiles)" v-model.number="config.report_range" step="0.5" />
+              <Field label="Discussion duration (s)" v-model.number="config.discussion_duration_seconds" />
+              <Field label="Voting duration (s)" v-model.number="config.voting_duration_seconds" />
+              <Field label="Tasks per crewmate" v-model.number="config.tasks_per_crewmate" />
+            </div>
+            <p class="font-arcade text-[8px] text-amber-300/70 mt-3">
+              Among Us: 4-10 players. Impostors kill crewmates. Complete tasks or vote out impostors to win.
+            </p>
+          </template>
+
+          <Field label="Pre-game countdown (s)" v-model.number="config.countdown_seconds" class="mt-5" />
         </div>
 
         <div v-if="saved" class="font-arcade text-[10px] text-green-300 text-center animate-mole-pop">
@@ -103,10 +152,58 @@ const runtimeConfig = useRuntimeConfig()
 const API = runtimeConfig.public.apiBase
 const route = useRoute()
 
+const GAME_TYPES = [
+  { value: 'taupe', label: 'Taupe Typing', emoji: '🐹' },
+  { value: 'dot_rush', label: 'Dot Rush', emoji: '🟡' },
+  { value: 'among_us', label: 'Among Us', emoji: '🕵️' },
+]
+
+const DOT_RUSH_DEFAULTS = {
+  game_type: 'dot_rush',
+  max_misses: 3,
+  initial_lifetime_ms: 1500,
+  min_lifetime_ms: 400,
+  initial_radius_pct: 8,
+  min_radius_pct: 2.5,
+  inter_round_gap_ms: 600,
+  scaling_exponent: 1,
+  miss_penalty: -5,
+  countdown_seconds: 5,
+}
+
+const AMONG_US_DEFAULTS = {
+  game_type: 'among_us',
+  impostor_count: 1,
+  kill_cooldown_seconds: 25,
+  kill_range: 1.5,
+  report_range: 1.0,
+  discussion_duration_seconds: 30,
+  voting_duration_seconds: 15,
+  tasks_per_crewmate: 4,
+  countdown_seconds: 5,
+}
+
 const session = ref(null)
 const config = ref({})
 const loading = ref(true)
 const saved = ref(false)
+
+// When switching to dot_rush or among_us, seed missing defaults so the form has values.
+watch(() => config.value.game_type, (gt) => {
+  if (gt === 'dot_rush') {
+    for (const [k, v] of Object.entries(DOT_RUSH_DEFAULTS)) {
+      if (config.value[k] === undefined || config.value[k] === null) {
+        config.value[k] = v
+      }
+    }
+  } else if (gt === 'among_us') {
+    for (const [k, v] of Object.entries(AMONG_US_DEFAULTS)) {
+      if (config.value[k] === undefined || config.value[k] === null) {
+        config.value[k] = v
+      }
+    }
+  }
+})
 
 const statusClass = computed(() => ({
   'waiting': 'bg-yellow-500/30 text-yellow-200 border border-yellow-400/60',

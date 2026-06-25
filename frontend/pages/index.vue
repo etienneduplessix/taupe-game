@@ -59,6 +59,7 @@
               <span class="flex items-center gap-2">
                 <span class="text-xl">{{ s.status === 'running' ? '⚡' : '⏳' }}</span>
                 <span>{{ s.name }}</span>
+                <span class="font-arcade text-[8px] bg-black/30 px-1.5 py-0.5 rounded">{{ gameTypeLabel(s) }}</span>
                 <span v-if="s.status === 'waiting'" class="font-arcade text-[8px] text-white/70">· {{ s.queue_count }} 👥 QUEUED</span>
               </span>
               <span class="font-arcade text-[9px] text-white/80">
@@ -128,6 +129,13 @@ onMounted(async () => {
     else navigateTo('/login')
   } catch (e) { navigateTo('/login') }
 })
+
+function gameTypeLabel(s) {
+  const gt = s.game_type || s.config_json?.game_type || 'taupe'
+  if (gt === 'dot_rush') return '🟡 DOT RUSH'
+  if (gt === 'among_us') return '🕵️ AMONG US'
+  return '🐹 TAUPE'
+}
 
 async function logout() {
   try { await $fetch('/api/auth/logout', { method: 'POST' }) } catch (e) {}
