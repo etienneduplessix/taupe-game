@@ -24,6 +24,13 @@
             <div class="font-arcade text-xl text-red-300">{{ aliveCount }}</div>
           </div>
         </div>
+        <div v-if="lightsOut && myRole === 'crewmate'" class="chip !bg-red-950/60 border-red-400/50">
+          <span class="text-xl">⚡</span>
+          <div>
+            <div class="font-arcade text-[9px] text-red-300">LIGHTS</div>
+            <div class="font-arcade text-xs text-red-400">OUT</div>
+          </div>
+        </div>
       </div>
       <div v-if="myRole === 'impostor'" class="flex gap-2">
         <button @click="sendKill" :disabled="killCooldown > 0" class="btn-3d btn-danger !py-2 !px-3 !text-xs">
@@ -64,8 +71,17 @@
           <div v-if="!focused" class="absolute inset-0 flex items-center justify-center bg-black/60 rounded-2xl pointer-events-none">
             <div class="font-arcade text-sm text-amber-300 text-center px-4">CLICK MAP TO FOCUS<br><span class="text-xs opacity-70">Use WASD or Arrow Keys to move</span></div>
           </div>
+          <!-- When lights are out, show Fix Lights as the primary urgent action for crewmates -->
           <button
-            v-if="nearbyTask && !activeTask"
+            v-if="lightsOut && myRole === 'crewmate'"
+            type="button"
+            class="absolute left-1/2 bottom-4 -translate-x-1/2 btn-3d btn-secondary !py-2 !px-5 !text-[10px] z-20 border-amber-400/60"
+            @click.stop="sendFixLights"
+          >
+            ⚡ FIX LIGHTS · F
+          </button>
+          <button
+            v-else-if="nearbyTask && !activeTask"
             type="button"
             class="absolute left-1/2 bottom-4 -translate-x-1/2 btn-3d btn-primary !py-2 !px-4 !text-[10px] z-20"
             @click.stop="tryStartTask"
@@ -73,6 +89,20 @@
             TASK: {{ nearbyTask.label }} · E
           </button>
         </div>
+
+        <!-- Floor switcher (multi-level prototype) -->
+        <div v-if="floorsData.length > 1" class="flex gap-1 mt-2">
+          <button
+            v-for="f in floorsData"
+            :key="f.id"
+            @click="switchFloor(f.id)"
+            class="btn-3d !py-1 !px-3 !text-[10px]"
+            :class="currentFloor === f.id ? 'btn-primary' : 'btn-ghost'"
+          >
+            {{ f.name }}
+          </button>
+        </div>
+
         <div class="shrink-0 rounded-xl border-2 border-amber-400/50 bg-[#0b1020]/85 p-2 shadow-[0_0_24px_rgba(0,0,0,0.45)]">
           <div class="font-arcade text-[8px] text-amber-300 mb-2 text-center">MAP</div>
           <canvas
@@ -232,8 +262,10 @@ const worldHeight = ref(1152)
 let ctx = null
 let miniCtx = null
 
-// Map data
+// Map data - multi floor support
 const mapData = ref(null)
+const floorsData = ref([]) // [{id, name, width, height, walls:Set, floorTiles:[], taskZones:[], spawns:[] }]
+const currentFloor = ref(0)
 const walls = ref(new Set())
 const floorTiles = ref([])
 const taskZones = ref([])
@@ -255,6 +287,10 @@ const meetingResult = ref(null)
 const meetingTimer = ref(0)
 const myVote = ref(null)
 
+// Authoritative vision radius for the local player, sent by the server
+// in among_us_state (respects role + alive/ghost status + config)
+const myVisionRadius = ref(5)
+
 // Players
 const players = ref({})
 const deadBodies = ref([])
@@ -263,7 +299,7 @@ const playerNames = ref({})
 
 // Movement
 const keys = ref({})
-const myPos = ref({ x: 5.5, y: 5.5 })
+const myPos = ref({ x: 5.5, y: 5.5, floor: 0 })
 let moveInterval = null
 let lastMoveSent = 0
 const MOVE_SEND_INTERVAL = 50
@@ -284,6 +320,7 @@ const nearbyTask = computed(() => {
   let nearest = null
   let nearestDistance = Infinity
   for (const zone of taskZones.value) {
+    if ((zone.floor ?? 0) !== currentFloor.value) continue
     if (!tasksAssigned.value.includes(zone.id)) continue
     if (completedTaskIds.value.includes(zone.id)) continue
     const distance = Math.hypot((zone.x + 0.5) - myPos.value.x, (zone.y + 0.5) - myPos.value.y)
@@ -295,27 +332,104 @@ const nearbyTask = computed(() => {
   return nearest
 })
 
-// Load map
+// Load map - now supports multi-floor
 async function loadMap() {
   try {
     const data = await $fetch('/maps/campus.json')
     mapData.value = data
     TILE_SIZE = data.tile_size || 32
+
+    // Parse all floors
+    floorsData.value = (data.floors || []).map(floorDef => {
+      const parsed = parseFloor(floorDef)
+      return {
+        id: floorDef.id,
+        name: floorDef.name || `Floor ${floorDef.id}`,
+        width: floorDef.width,
+        height: floorDef.height,
+        ...parsed
+      }
+    })
+
+    // Default to floor 0
+    if (floorsData.value.length > 0) {
+      currentFloor.value = 0
+      applyFloorData(0)
+    }
+
+    // Size based on first floor (assume similar)
+    const first = floorsData.value[0] || { width: 22, height: 36 }
     const crop = data.background_crop
     if (crop) {
-      TILE_SIZE = crop.w / data.width
+      TILE_SIZE = crop.w / first.width
       worldWidth.value = crop.w
       worldHeight.value = crop.h
     } else {
-      worldWidth.value = data.width * TILE_SIZE
-      worldHeight.value = data.height * TILE_SIZE
+      worldWidth.value = first.width * TILE_SIZE
+      worldHeight.value = first.height * TILE_SIZE
     }
     canvasWidth.value = Math.min(worldWidth.value, 760)
     canvasHeight.value = Math.min(worldHeight.value, 540)
-    parseMap(data)
+
     loadBackground(data)
   } catch (e) {
     console.error('Failed to load map', e)
+  }
+}
+
+function parseFloor(floorDef) {
+  const wallsSet = new Set()
+  const floorTilesList = []
+  const taskZonesList = []
+  const spawnsList = floorDef.spawns || []
+
+  floorDef.tiles.forEach((row, y) => {
+    for (let x = 0; x < row.length; x++) {
+      const ch = row[x]
+      if (ch === 'W') {
+        wallsSet.add(`${x},${y}`)
+      } else if (ch >= '1' && ch <= '9' || ch === '0') {  // support more tasks
+        floorTilesList.push({ x, y })
+        const tid = 'T' + ch
+        const zone = floorDef.task_zones?.[tid]
+        if (zone) {
+          taskZonesList.push({ x, y, id: tid, floor: floorDef.id, ...zone })
+        }
+      } else {
+        floorTilesList.push({ x, y })
+      }
+    }
+  })
+
+  return {
+    walls: wallsSet,
+    floorTiles: floorTilesList,
+    taskZones: taskZonesList,
+    spawns: spawnsList,
+    rawTiles: floorDef.tiles
+  }
+}
+
+function applyFloorData(floorId) {
+  const f = floorsData.value.find(ff => ff.id === floorId)
+  if (!f) return
+  currentFloor.value = floorId
+  walls.value = f.walls
+  floorTiles.value = f.floorTiles
+  taskZones.value = f.taskZones
+  spawns.value = f.spawns
+  // world size could be updated per floor if they differ
+}
+
+function switchFloor(floorId) {
+  if (floorId === currentFloor.value) return
+  applyFloorData(floorId)
+  // Optional: send a move to server so it knows our view/floor (helps for future)
+  if (props.socket?.readyState === 1) {
+    props.socket.send(JSON.stringify({
+      type: 'among_us_move',
+      data: { x: myPos.value.x, y: myPos.value.y, floor: currentFloor.value }
+    }))
   }
 }
 
@@ -380,6 +494,10 @@ function handleKeyDown(e) {
     e.preventDefault()
     tryAutoKill()
   }
+  if (key === 'f' && lightsOut.value && myRole.value === 'crewmate') {
+    e.preventDefault()
+    sendFixLights()
+  }
 }
 
 function handleKeyUp(e) {
@@ -437,7 +555,7 @@ function updatePosition() {
     if (props.socket?.readyState === 1) {
       props.socket.send(JSON.stringify({
         type: 'among_us_move',
-        data: { x: myPos.value.x, y: myPos.value.y }
+        data: { x: myPos.value.x, y: myPos.value.y, floor: myPos.value.floor ?? 0 }
       }))
     }
   }
@@ -524,8 +642,9 @@ function render() {
     }
   })
 
-  // Draw dead bodies
+  // Draw dead bodies (only current floor)
   deadBodies.value.forEach(body => {
+    if ((body.floor ?? 0) !== currentFloor.value) return
     ctx.fillStyle = body.color || '#888'
     ctx.globalAlpha = 0.7
     const bx = body.x * TILE_SIZE
@@ -549,6 +668,9 @@ function render() {
     const isMe = p.id === myId
     const isGhost = !p.alive
     const isImpostor = p.role === 'impostor'
+    const pFloor = p.floor ?? 0
+    if (pFloor !== currentFloor.value && !isMe) return
+
     const dist = Math.hypot(p.x - myPos.value.x, p.y - myPos.value.y)
     const inVision = dist <= myVision || isMe
 
@@ -611,14 +733,19 @@ function render() {
     ctx.globalAlpha = 1.0
   })
 
-  // Vision radius overlay (darken outside)
+  // === End of world-space drawing ===
+  ctx.restore()
+
+  // === SCREEN-SPACE OVERLAYS (e.g. lights-out vision fog) ===
+  // These must be drawn *after* restoring the camera transform so they
+  // are not affected by world translation/scale.
   if (lightsOut.value && myRole.value !== 'impostor') {
     const visionPx = myVision * TILE_SIZE
+    // Player position in screen space for the gradient center
     const mx = myPos.value.x * TILE_SIZE - camera.x
     const my = myPos.value.y * TILE_SIZE - camera.y
 
-    ctx.restore()
-
+    ctx.save()
     ctx.fillStyle = 'rgba(0, 0, 0, 0.85)'
     ctx.fillRect(0, 0, canvasWidth.value, canvasHeight.value)
 
@@ -631,8 +758,8 @@ function render() {
     ctx.beginPath()
     ctx.arc(mx, my, visionPx, 0, Math.PI * 2)
     ctx.fill()
+
     ctx.globalCompositeOperation = 'source-over'
-  } else {
     ctx.restore()
   }
 
@@ -708,9 +835,14 @@ function getMyId() {
 }
 
 function getMyVisionRadius() {
-  if (!myRole.value) return 5
+  // Prefer the authoritative value the server sends for this player
+  // (includes impostor/ghost vision differences and any config overrides)
+  if (myVisionRadius.value) return myVisionRadius.value
+
+  // Fallbacks (should rarely be needed once state arrives)
   if (myRole.value === 'impostor') return 6
-  if (!players.value['me']?.alive) return 8
+  const me = players.value[getMyId()]
+  if (me && !me.alive) return 8
   return 5
 }
 
@@ -881,6 +1013,16 @@ function sendSabotage() {
   }
 }
 
+function sendFixLights() {
+  if (myRole.value !== 'crewmate' || !lightsOut.value) return
+  if (props.socket?.readyState === 1) {
+    props.socket.send(JSON.stringify({
+      type: 'among_us_sabotage',
+      data: { type: 'fix_lights' }
+    }))
+  }
+}
+
 // Voting
 function vote(targetId) {
   myVote.value = targetId
@@ -902,7 +1044,15 @@ function handleAmongUsState(data) {
     players.value[p.id] = p
     playerNames.value[p.id] = p.display_name || p.id
     if (p.id === getMyId()) {
-      myPos.value = { x: p.x, y: p.y }
+      const newFloor = p.floor ?? 0
+      myPos.value = { x: p.x, y: p.y, floor: newFloor }
+      if (p.vision_radius != null) {
+        myVisionRadius.value = p.vision_radius
+      }
+      // If server moved us to another floor (stair/transition), switch view
+      if (newFloor !== currentFloor.value && floorsData.value.some(f => f.id === newFloor)) {
+        applyFloorData(newFloor)
+      }
     }
   })
 
@@ -926,6 +1076,11 @@ function handleAmongUsEvent(data) {
     if (data.player_id === getMyId() && data.task_id && !completedTaskIds.value.includes(data.task_id)) {
       completedTaskIds.value.push(data.task_id)
     }
+    // If server auto-completed our current hold task (e.g. timer expiry), close the overlay
+    if (data.player_id === getMyId() && activeTask.value?.id === data.task_id) {
+      activeTask.value = null
+      stopTaskHold()
+    }
   } else if (event === 'sabotage' && data.type === 'lights') {
     lightsOut.value = data.active
   }
@@ -934,6 +1089,10 @@ function handleAmongUsEvent(data) {
 function handleRole(data) {
   if (props.sessionId && data.session_id && data.session_id !== props.sessionId) return
   myRole.value = data.role
+  // Set a reasonable default immediately; the next among_us_state will
+  // override it with the precise server-computed value (including ghost status)
+  myVisionRadius.value = data.role === 'impostor' ? 6 : 5
+
   if (data.tasks) {
     tasksAssigned.value = data.tasks
     completedTaskIds.value = []

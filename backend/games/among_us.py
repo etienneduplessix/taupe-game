@@ -21,57 +21,111 @@ from game_loop import BaseGameLoop
 
 GAME_TYPE_AMONG_US = "among_us"
 
-# Campus map (42 Prague). Cells: W=wall, .=floor, 1-8=task zones (-> T1..T8).
-# Layout aligns with frontend/public/maps/campus.svg (building interior).
-SHIP_MAP = [
-    "WWWWWWWWWWWWWWWWWWWWWW",
-    "W....................W",
-    "W........1...........W",
-    "W....................W",
-    "W....................W",
-    "W....................W",
-    "W.3..................W",
-    "W.......WWWWW........W",
-    "W.......WWWWW........W",
-    "W.......WWWWW........W",
-    "W....................W",
-    "W.................2..W",
-    "W....................W",
-    "W....................W",
-    "W.......WWWWW........W",
-    "W.......WWWWW........W",
-    "W.......WWWWW........W",
-    "W....................W",
-    "W....................W",
-    "W......WWWWWWW.......W",
-    "W......WWWWWWW.......W",
-    "W..4...WWWWWWW...6...W",
-    "W......WWWWWWW.......W",
-    "W......WWWWWWW.......W",
-    "W......WWWWWWW.......W",
-    "W......WWWWWWW.......W",
-    "W......WWWWWWW.......W",
-    "W......WWWWWWW.......W",
-    "W.5....WWWWWWW.......W",
-    "W......WWWWWWW.......W",
-    "W..................7.W",
-    "W....................W",
-    "W....................W",
-    "W....................W",
-    "W.........8..........W",
-    "WWWWWWWWWWWWWWWWWWWWWW",
-]
+# Multi-floor map support (prototype).
+# For now we hardcode two floors mirroring frontend/public/maps/campus.json .
+# Floor 0 = Ground, Floor 1 = Upper (same layout for initial test; transitions added below).
 
-TASK_ZONES = {
-    "T1": {"type": "button_press", "label": "Cluster 1",  "duration": 3.0},
-    "T2": {"type": "wire_connect", "label": "Cluster 1",  "sequence": ["A", "B", "C", "D"]},
-    "T3": {"type": "swipe_card",   "label": "Cluster 3",  "duration": 4.0},
-    "T4": {"type": "upload_data",  "label": "Kitchen",    "duration": 5.0},
-    "T5": {"type": "calibrate",    "label": "Cluster 2",  "clicks": 3},
-    "T6": {"type": "button_press", "label": "Auditorium", "duration": 3.0},
-    "T7": {"type": "wire_connect", "label": "Server Room", "sequence": ["1", "2", "3", "4"]},
-    "T8": {"type": "swipe_card",   "label": "Cluster 2",  "duration": 4.0},
+FLOOR_MAPS = {
+    0: [
+        "WWWWWWWWWWWWWWWWWWWWWW",
+        "W....................W",
+        "W........1...........W",
+        "W....................W",
+        "W....................W",
+        "W....................W",
+        "W.3..................W",
+        "W.......WWWWW........W",
+        "W.......WWWWW........W",
+        "W.......WWWWW........W",
+        "W....................W",
+        "W.................2..W",
+        "W....................W",
+        "W....................W",
+        "W.......WWWWW........W",
+        "W.......WWWWW........W",
+        "W.......WWWWW........W",
+        "W....................W",
+        "W....................W",
+        "W......WWWWWWW.......W",
+        "W......WWWWWWW.......W",
+        "W..4...WWWWWWW...6...W",
+        "W......WWWWWWW.......W",
+        "W......WWWWWWW.......W",
+        "W......WWWWWWW.......W",
+        "W......WWWWWWW.......W",
+        "W......WWWWWWW.......W",
+        "W......WWWWWWW.......W",
+        "W.5....WWWWWWW.......W",
+        "W......WWWWWWW.......W",
+        "W..................7.W",
+        "W....................W",
+        "W....................W",
+        "W....................W",
+        "W.........8..........W",
+        "WWWWWWWWWWWWWWWWWWWWWW",
+    ],
+    1: [
+        "WWWWWWWWWWWWWWWWWWWWWW",
+        "W....................W",
+        "W........1...........W",
+        "W....................W",
+        "W....................W",
+        "W....................W",
+        "W.3..................W",
+        "W.......WWWWW........W",
+        "W.......WWWWW........W",
+        "W.......WWWWW........W",
+        "W....................W",
+        "W.................2..W",
+        "W....................W",
+        "W....................W",
+        "W.......WWWWW........W",
+        "W.......WWWWW........W",
+        "W.......WWWWW........W",
+        "W....................W",
+        "W....................W",
+        "W......WWWWWWW.......W",
+        "W......WWWWWWW.......W",
+        "W..4...WWWWWWW...6...W",
+        "W......WWWWWWW.......W",
+        "W......WWWWWWW.......W",
+        "W......WWWWWWW.......W",
+        "W......WWWWWWW.......W",
+        "W......WWWWWWW.......W",
+        "W......WWWWWWW.......W",
+        "W.5....WWWWWWW.......W",
+        "W......WWWWWWW.......W",
+        "W..................7.W",
+        "W....................W",
+        "W....................W",
+        "W....................W",
+        "W.........8..........W",
+        "WWWWWWWWWWWWWWWWWWWWWW",
+    ],
 }
+
+FLOOR_TASK_ZONES = {
+    0: {
+        "T1": {"type": "button_press", "label": "Cluster 1",  "duration": 3.0},
+        "T2": {"type": "wire_connect", "label": "Cluster 1",  "sequence": ["A", "B", "C", "D"]},
+        "T3": {"type": "swipe_card",   "label": "Cluster 3",  "duration": 4.0},
+        "T4": {"type": "upload_data",  "label": "Kitchen",    "duration": 5.0},
+        "T5": {"type": "calibrate",    "label": "Cluster 2",  "clicks": 3},
+        "T6": {"type": "button_press", "label": "Auditorium", "duration": 3.0},
+        "T7": {"type": "wire_connect", "label": "Server Room", "sequence": ["1", "2", "3", "4"]},
+        "T8": {"type": "swipe_card",   "label": "Cluster 2",  "duration": 4.0},
+    },
+    1: {
+        "T9": {"type": "button_press", "label": "Upper Control", "duration": 4.0},
+        "T10": {"type": "calibrate", "label": "Rooftop", "clicks": 3},
+    },
+}
+
+# Simple stair transitions (x,y on from_floor -> to_floor at to_x,to_y)
+FLOOR_TRANSITIONS = [
+    {"from_floor": 0, "x": 10, "y": 10, "to_floor": 1, "to_x": 10, "to_y": 10},
+    {"from_floor": 1, "x": 10, "y": 10, "to_floor": 0, "to_x": 10, "to_y": 10},
+]
 
 AMONG_US_DEFAULTS = {
     "game_type": "among_us",
@@ -140,7 +194,10 @@ class AmongUsGameLoop(BaseGameLoop):
         self._dead_bodies: list[dict] = []
         self._input_queue: asyncio.Queue = asyncio.Queue()
 
-        self._task_list: list[str] = list(TASK_ZONES.keys())
+        self._task_list: list[str] = []
+        for tz in self.floor_task_zones.values():
+            self._task_list.extend(tz.keys())
+        self._task_list = list(set(self._task_list))  # unique across floors for now
         self.tasks_assigned: dict[str, list[str]] = {}
         self.tasks_completed: dict[str, list[str]] = {}
         self._task_timers: dict[str, dict] = {}
@@ -151,10 +208,25 @@ class AmongUsGameLoop(BaseGameLoop):
         self._meeting: Optional[dict] = None
         self._votes: dict[str, str] = {}
 
-        self._walls, self._floor, self._map_task_zones = _parse_map(SHIP_MAP)
-        self.map_width = len(SHIP_MAP[0])
-        self.map_height = len(SHIP_MAP)
-        self._map_spawns = [(16, 5), (4, 5), (17, 33), (4, 33), (10, 32), (15, 18), (5, 18), (10, 5)]
+        # Multi floor support (prototype)
+        self.floors = {}
+        self.floor_task_zones = {}
+        for fid, tile_rows in FLOOR_MAPS.items():
+            w, fl, tz = _parse_map(tile_rows)
+            self.floors[fid] = {"walls": w, "floor": fl, "width": len(tile_rows[0]), "height": len(tile_rows)}
+            self.floor_task_zones[fid] = tz
+
+        # Default to floor 0 for legacy single-floor assumptions
+        self._walls = self.floors[0]["walls"]
+        self._floor = self.floors[0]["floor"]
+        self.map_width = self.floors[0]["width"]
+        self.map_height = self.floors[0]["height"]
+        self._map_task_zones = self.floor_task_zones[0]
+
+        self._map_spawns = {
+            0: [(16, 5), (4, 5), (17, 33), (4, 33), (10, 32), (15, 18), (5, 18), (10, 5)],
+            1: [(10, 5), (11, 18)],
+        }
 
         self._sabotage_timers: dict[str, float] = {}
         self._lights_out: bool = False
@@ -217,8 +289,9 @@ class AmongUsGameLoop(BaseGameLoop):
     async def add_player(self, user_id: str):
         await super().add_player(user_id)
         if user_id not in self.positions:
-            spawn = self._map_spawns[len(self.positions) % len(self._map_spawns)]
-            self.positions[user_id] = {"x": float(spawn[0]) + 0.5, "y": float(spawn[1]) + 0.5}
+            spawns = self._map_spawns.get(0, [(10, 5)])
+            spawn = spawns[len(self.positions) % len(spawns)]
+            self.positions[user_id] = {"x": float(spawn[0]) + 0.5, "y": float(spawn[1]) + 0.5, "floor": 0}
         idx = len(self.alive_players) - 1
         self.colors.setdefault(user_id, PLAYER_COLORS[idx % len(PLAYER_COLORS)])
         self.display_names[user_id] = user_id
@@ -291,6 +364,7 @@ class AmongUsGameLoop(BaseGameLoop):
                 "id": pid,
                 "x": p["x"],
                 "y": p["y"],
+                "floor": p.get("floor", 0),
                 "alive": self.is_alive.get(pid, False),
                 "role": visible_role,
                 "color": self.colors.get(pid, "#888"),
@@ -362,11 +436,33 @@ class AmongUsGameLoop(BaseGameLoop):
 
         x = float(payload.get("x") or 0)
         y = float(payload.get("y") or 0)
-        if not (0 <= x < self.map_width and 0 <= y < self.map_height):
+        new_floor = int(payload.get("floor", self.positions.get(user_id, {}).get("floor", 0)))
+
+        # Validate against the target floor's dimensions
+        fdata = self.floors.get(new_floor, self.floors[0])
+        if not (0 <= x < fdata["width"] and 0 <= y < fdata["height"]):
             return
+
+        # Collision on target floor
+        old_walls = self._walls
+        self._walls = fdata["walls"]
         if self._collides_wall(x, y):
+            self._walls = old_walls
             return
-        self.positions[user_id] = {"x": x, "y": y}
+        self._walls = old_walls
+
+        pos = {"x": x, "y": y, "floor": new_floor}
+
+        # Check for stair/transition
+        for tr in FLOOR_TRANSITIONS:
+            if (tr["from_floor"] == new_floor and
+                    abs(tr["x"] - x) < 0.6 and abs(tr["y"] - y) < 0.6):
+                pos["floor"] = tr["to_floor"]
+                pos["x"] = tr["to_x"] + 0.5
+                pos["y"] = tr["to_y"] + 0.5
+                break
+
+        self.positions[user_id] = pos
 
     # ------------------------------------------------------------------ kill
 
@@ -394,6 +490,8 @@ class AmongUsGameLoop(BaseGameLoop):
         victim_pos = self.positions.get(target_id)
         if not killer_pos or not victim_pos:
             return
+        if killer_pos.get("floor", 0) != victim_pos.get("floor", 0):
+            return
 
         kill_range = self._cfg_float("kill_range")
         if _distance(killer_pos, victim_pos) > kill_range:
@@ -405,6 +503,7 @@ class AmongUsGameLoop(BaseGameLoop):
         body = {
             "x": victim_pos["x"],
             "y": victim_pos["y"],
+            "floor": victim_pos.get("floor", 0),
             "victim_id": target_id,
             "color": self.colors.get(target_id, "#888"),
         }
@@ -434,9 +533,12 @@ class AmongUsGameLoop(BaseGameLoop):
         if not player_pos:
             return
 
+        pfloor = player_pos.get("floor", 0)
         report_range = self._cfg_float("report_range")
         reported = None
         for body in self._dead_bodies:
+            if body.get("floor", 0) != pfloor:
+                continue
             if _distance(player_pos, body) < report_range:
                 reported = body
                 break
@@ -465,7 +567,8 @@ class AmongUsGameLoop(BaseGameLoop):
         player_pos = self.positions.get(user_id)
         if not player_pos:
             return
-        task_tiles = self._map_task_zones.get(task_id, [])
+        pfloor = player_pos.get("floor", 0)
+        task_tiles = self.floor_task_zones.get(pfloor, {}).get(task_id, [])
         interact_range = self._cfg_float("task_interact_range")
         is_near_task = any(
             math.hypot(player_pos["x"] - (tx + 0.5), player_pos["y"] - (ty + 0.5)) <= interact_range
@@ -474,14 +577,18 @@ class AmongUsGameLoop(BaseGameLoop):
         if not is_near_task:
             return
 
-        task_def = TASK_ZONES.get(task_id)
+        task_def = None
+        for tz in self.floor_task_zones.values():
+            if task_id in tz:
+                task_def = tz[task_id]
+                break
         if not task_def:
             return
 
         if task_def["type"] in ("button_press", "swipe_card", "upload_data"):
             self._task_timers[user_id] = {
                 "task_id": task_id,
-                "remaining": max(task_def["duration"] + 8.0, 10.0),
+                "remaining": task_def["duration"],
                 "total": task_def["duration"],
             }
         elif task_def["type"] == "calibrate":
@@ -509,7 +616,11 @@ class AmongUsGameLoop(BaseGameLoop):
         if not timer:
             return
         task_id = timer["task_id"]
-        task_def = TASK_ZONES.get(task_id)
+        task_def = None
+        for tz in self.floor_task_zones.values():
+            if task_id in tz:
+                task_def = tz[task_id]
+                break
         if not task_def:
             return
 
@@ -741,8 +852,9 @@ class AmongUsGameLoop(BaseGameLoop):
         players = list(self.alive_players)
         for i, pid in enumerate(players):
             self.display_names[pid] = pid
-            spawn = self._map_spawns[i % len(self._map_spawns)]
-            self.positions[pid] = {"x": float(spawn[0]) + 0.5, "y": float(spawn[1]) + 0.5}
+            spawns = self._map_spawns.get(0, [(10, 5)])
+            spawn = spawns[i % len(spawns)]
+            self.positions[pid] = {"x": float(spawn[0]) + 0.5, "y": float(spawn[1]) + 0.5, "floor": 0}
 
         self._assign_roles()
         self._assign_tasks()
@@ -785,13 +897,20 @@ class AmongUsGameLoop(BaseGameLoop):
 
     def _update_task_timers(self, dt: float):
         for user_id, timer in list(self._task_timers.items()):
-            task_def = TASK_ZONES.get(timer["task_id"])
+            task_def = None
+            for tz in self.floor_task_zones.values():
+                if timer.get("task_id") in tz:
+                    task_def = tz[timer["task_id"]]
+                    break
             if not task_def:
                 continue
             if task_def["type"] in ("button_press", "swipe_card", "upload_data"):
                 timer["remaining"] -= dt
                 if timer["remaining"] <= 0:
+                    task_id = timer.get("task_id")
                     self._task_timers.pop(user_id, None)
+                    if task_id:
+                        self._complete_task(user_id, task_id)
 
     # ------------------------------------------------------------------ handle_player_input (called from main.py WebSocket)
 
